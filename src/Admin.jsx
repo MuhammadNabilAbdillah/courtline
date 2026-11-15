@@ -165,7 +165,14 @@ function Matches({ tm, ms, tid, admin, run, load }) {
 
 function Teams({ tm, tours, tid, run }) {
   const blank = { name: '', player1: '', player2: '', grp: 'A' }, [tf, setTf] = useState(blank)
+  const [eid, setEid] = useState(null), [ef, setEf] = useState(blank)
   const set = k => e => setTf({ ...tf, [k]: e.target.value })
+  const eset = k => e => setEf({ ...ef, [k]: e.target.value })
+  const startEdit = t => { setEid(t.id); setEf({ name: t.name || '', player1: t.player1, player2: t.player2, grp: t.grp || 'A' }) }
+  const saveEdit = t => {
+    if (!ef.player1.trim() || !ef.player2.trim()) return alert('Both player names are required')
+    run(supabase.from('teams').update({ name: ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`, player1: ef.player1.trim(), player2: ef.player2.trim(), grp: ef.grp }).eq('id', t.id)).then(() => setEid(null))
+  }
   return <div className="panel"><h3>Teams & players</h3>
     <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('teams').insert({ ...tf, name: tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`, tournament_id: tid })); setTf(blank) }}>
       <input required placeholder="Player 1" value={tf.player1} onChange={set('player1')} />
@@ -174,14 +181,36 @@ function Teams({ tm, tours, tid, run }) {
       <select value={tf.grp} onChange={set('grp')}>{GROUPS.map(g => <option key={g} value={g}>Group {g}</option>)}</select>
       <button className="btn">Add team</button>
     </form>
-    <div className="scroll"><table className="tb left"><tbody>{tm.map(t => <tr key={t.id}><td><b>{tn(t)}</b></td><td>{t.player1} / {t.player2}</td><td>Group {t.grp}</td>
-      <td><button className="btn o sm" onClick={() => confirm('Delete team and its matches?') && run(supabase.from('teams').delete().eq('id', t.id))}>Delete</button></td></tr>)}</tbody></table></div>
+    <div className="items">{tm.map(t => eid === t.id
+      ? <div className="item editing" key={t.id}>
+        <div className="fm">
+          <input placeholder="Team name" value={ef.name} onChange={eset('name')} />
+          <input placeholder="Player 1" value={ef.player1} onChange={eset('player1')} />
+          <input placeholder="Player 2" value={ef.player2} onChange={eset('player2')} />
+          <select value={ef.grp} onChange={eset('grp')}>{[...new Set([...GROUPS, ef.grp])].map(g => <option key={g} value={g}>Group {g}</option>)}</select>
+        </div>
+        <div className="ctrl"><button className="btn sm" onClick={() => saveEdit(t)}>Save</button><button className="btn o sm" onClick={() => setEid(null)}>Cancel</button></div>
+      </div>
+      : <div className="item" key={t.id}>
+        <div className="im"><b>{tn(t)}</b><small>{t.player1} / {t.player2}</small></div>
+        <span className="chip">Group {t.grp}</span>
+        <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
+          <button className="btn o sm danger" onClick={() => confirm('Delete team and its matches?') && run(supabase.from('teams').delete().eq('id', t.id))}>Delete</button></div>
+      </div>)}</div>
+    {!tm.length && <p className="muted">No teams yet.</p>}
   </div>
 }
 
 function Tournaments({ tours, run }) {
   const blank = { name: '', gender: 'Men', level: 'Beginner', start_date: '' }, [f, setF] = useState(blank)
+  const [eid, setEid] = useState(null), [ef, setEf] = useState(blank)
   const set = k => e => setF({ ...f, [k]: e.target.value })
+  const eset = k => e => setEf({ ...ef, [k]: e.target.value })
+  const startEdit = t => { setEid(t.id); setEf({ name: t.name, gender: t.gender, level: t.level, start_date: t.start_date || '' }) }
+  const saveEdit = t => {
+    if (!ef.name.trim()) return alert('Tournament name is required')
+    run(supabase.from('tournaments').update({ name: ef.name.trim(), gender: ef.gender, level: ef.level, start_date: ef.start_date || null }).eq('id', t.id)).then(() => setEid(null))
+  }
   return <div className="panel"><h3>Tournaments</h3>
     <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('tournaments').insert({ ...f, start_date: f.start_date || null })); setF(blank) }}>
       <input required className="wide" placeholder="Tournament name, e.g. BEGINNER MEN GROUP STAGE" value={f.name} onChange={set('name')} />
@@ -190,8 +219,21 @@ function Tournaments({ tours, run }) {
       <input type="date" value={f.start_date} onChange={set('start_date')} />
       <button className="btn">Create</button>
     </form>
-    <div className="scroll"><table className="tb left"><tbody>{tours.map(t => <tr key={t.id}><td><b>{t.name}</b></td><td>{t.gender} · {t.level}</td>
-      <td><button className="btn o sm" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id))}>Delete</button></td></tr>)}</tbody></table></div>
+    <div className="items">{tours.map(t => eid === t.id
+      ? <div className="item editing" key={t.id}>
+        <div className="fm">
+          <input className="wide" placeholder="Tournament name" value={ef.name} onChange={eset('name')} />
+          <select value={ef.gender} onChange={eset('gender')}>{GENDERS.map(x => <option key={x}>{x}</option>)}</select>
+          <select value={ef.level} onChange={eset('level')}>{LEVELS.map(x => <option key={x}>{x}</option>)}</select>
+          <input type="date" value={ef.start_date} onChange={eset('start_date')} />
+        </div>
+        <div className="ctrl"><button className="btn sm" onClick={() => saveEdit(t)}>Save</button><button className="btn o sm" onClick={() => setEid(null)}>Cancel</button></div>
+      </div>
+      : <div className="item" key={t.id}>
+        <div className="im"><b>{t.name}</b><small>{t.gender} · {t.level}{t.start_date ? ' · ' + t.start_date : ''}</small></div>
+        <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
+          <button className="btn o sm danger" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id))}>Delete</button></div>
+      </div>)}</div>
   </div>
 }
 
