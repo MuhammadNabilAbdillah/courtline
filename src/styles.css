@@ -164,3 +164,13 @@ footer{text-align:center;color:var(--mute);font-size:.75rem;padding:1.2rem var(-
 .item.editing{display:block;background:var(--tint);border:1px solid var(--line);border-radius:.8rem;padding:.8rem;margin:.4rem 0}
 .item.editing .fm{margin:0 0 .4rem}
 @media(max-width:640px){.item .ia{width:100%;margin-left:0}.item .ia .btn{flex:1}}
+/* phone header: logo left, clock pushed to the right edge */
+@media(max-width:760px){
+ .bar nav+.clock,.clock{margin-left:auto}
+ .bi{justify-content:space-between;gap:.5rem}
+ .clock{flex:none;white-space:nowrap}
+}
+@media(max-width:640px){
+ .clock b{font-size:.88rem}.clock small{font-size:.6rem}.clock span{font-size:.62rem}
+ .logo{font-size:1.1rem}
+}
