@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { supabase, SB_URL, SB_KEY } from './supabase'
-import { addPoint } from './score'
+import { addPoint, settle } from './score'
 import { Card } from './ui'
 import { resolve } from './standings'
 import { BracketView } from './Bracket'
-import { toLocal, fromLocal, emailOf, GENDERS, LEVELS, FORMATS, clash, tn } from './util'
+import { toLocal, fromLocal, emailOf, GENDERS, LEVELS, FORMATS, clash, tn, parseTeams, fmtDate, fmtTime } from './util'
 
 const HH = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MM = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
@@ -71,10 +71,36 @@ function EditForm({ m, tm, onSave, onCancel, onDelete }) {
   </div>
 }
 
+// Manual score correction: edit finished sets, the current game and the current points.
+function ScoreEdit({ m, onSave, onCancel }) {
+  const [sets, setSets] = useState(m.sets.map(s => [String(s[0]), String(s[1])]))
+  const [g, setG] = useState(m.g.map(String)), [p, setP] = useState(m.p.map(String))
+  const num = v => Math.max(0, Math.min(99, parseInt(v, 10) || 0))
+  const setS = (i, j, v) => setSets(sets.map((s, k) => k === i ? s.map((x, l) => l === j ? v : x) : s))
+  const names = [tn(m.t1) || 'Team A', tn(m.t2) || 'Team B']
+  const two = (arr, fn) => [0, 1].map(j => <input key={j} type="number" inputMode="numeric" min="0" value={arr[j]} onChange={e => fn(j, e.target.value)} />)
+  return <div className="editbox">
+    <h4>Correct score</h4>
+    <div className="se">
+      <div className="sr head"><span /><b>{names[0]}</b><b>{names[1]}</b><span /></div>
+      {sets.map((s, i) => <div className="sr" key={i}><span>Set {i + 1}</span>{two(s, (j, v) => setS(i, j, v))}
+        <button className="btn o sm danger" aria-label={`Remove set ${i + 1}`} onClick={() => setSets(sets.filter((_, k) => k !== i))}>×</button></div>)}
+      <div className="sr"><span>Games</span>{two(g, (j, v) => setG(g.map((x, k) => k === j ? v : x)))}<span /></div>
+      <div className="sr"><span>Points</span>{two(p, (j, v) => setP(p.map((x, k) => k === j ? v : x)))}<span /></div>
+    </div>
+    <p className="muted">Points: 0, 1, 2, 3 = 0, 15, 30, 40 (in a tie-break, enter the real points). Games and points are cleared automatically when the sets already decide the winner.</p>
+    <div className="ctrl">
+      {sets.length < 5 && <button className="btn o sm" onClick={() => setSets([...sets, ['0', '0']])}>+ Add set</button>}
+      <button className="btn sm" onClick={() => onSave({ sets: sets.map(s => [num(s[0]), num(s[1])]), g: g.map(num), p: p.map(num) })}>Save score</button>
+      <button className="btn o sm" onClick={onCancel}>Cancel</button>
+    </div>
+  </div>
+}
+
 function Matches({ tm, ms, tid, admin, run, load }) {
   const def = () => { const d = new Date(); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return d.toISOString() }
   const [mf, setMf] = useState({ team1: '', team2: '', court: 'Court 1', round: 'Group Stage', fmt: 'bo3', golden: true, start_at: def(), duration: 60 })
-  const [dl, setDl] = useState(15), [gf, setGf] = useState('bo3'), [editing, setEditing] = useState(null)
+  const [dl, setDl] = useState(15), [gf, setGf] = useState('bo3'), [editing, setEditing] = useState(null), [scoring, setScoring] = useState(null)
   const courts = [...new Set(['Court 1', 'Court 2', 'Court 3', 'Court 4', ...ms.map(m => m.court)])]
   const hasKO = ms.some(m => m.round !== 'Group Stage')
   const upd = (m, v) => run(supabase.from('matches').update(v).eq('id', m.id))
@@ -93,6 +119,16 @@ function Matches({ tm, ms, tid, admin, run, load }) {
     if (m.status !== 'live') return
     const cur = { sets: m.sets, g: m.g, p: m.p }, n = addPoint(cur, t, m.golden, m.best_of, m.target)
     upd(m, { sets: n.sets, g: n.g, p: n.p, history: [...m.history.slice(-30), cur], status: n.winner === null ? 'live' : 'finished', winner: n.winner === null ? null : (n.winner ? m.team2 : m.team1) })
+  }
+  const saveScore = (m, v) => {
+    const w = settle(v.sets, m.best_of), done = w !== null
+    const msg = done
+      ? `Save the corrected score? ${tn(w ? m.t2 : m.t1)} will be the winner.${m.status === 'finished' ? ' Knockout slots that were already filled are not changed automatically.' : ''}`
+      : 'Save the corrected score? The match will continue as live.'
+    if (!confirm(msg)) return
+    const cur = { sets: m.sets, g: m.g, p: m.p }
+    upd(m, { sets: v.sets, g: done ? [0, 0] : v.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: done ? 'finished' : 'live', winner: done ? (w ? m.team2 : m.team1) : null })
+    setScoring(null)
   }
   const undo = m => { const h = [...m.history], prev = h.pop(); if (prev) upd(m, { ...prev, history: h, status: 'live', winner: null }) }
   const delay = async () => {
@@ -149,18 +185,60 @@ function Matches({ tm, ms, tid, admin, run, load }) {
     <h3 className="sec">Match control <span className="chip">{ms.length}</span></h3>
     <div className="grid">{ms.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m}>
       {editing === m.id ? <EditForm m={m} tm={tm} onSave={f => save(m, f)} onCancel={() => setEditing(null)} onDelete={() => del(m)} /> :
+        scoring === m.id ? <ScoreEdit m={m} onSave={v => saveScore(m, v)} onCancel={() => setScoring(null)} /> :
         <div className="ctrl">
           {m.status === 'scheduled' && <button className="btn sm" onClick={() => upd(m, { status: 'live' })} disabled={!m.team1 || !m.team2}>Start match</button>}
           {m.status === 'live' && <>
             <button className="btn sm" onClick={() => point(m, 0)}>+ {tn(m.t1)}</button>
             <button className="btn sm" onClick={() => point(m, 1)}>+ {tn(m.t2)}</button>
             <button className="btn o sm" onClick={() => undo(m)}>Undo</button></>}
+          {m.status !== 'scheduled' && <button className="btn o sm" onClick={() => setScoring(m.id)}>Edit score</button>}
           {admin && <button className="btn o sm" onClick={() => setEditing(m.id)}>Edit</button>}
           {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null })}>Reset</button>}
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Delete</button>}
         </div>}
     </Card></div>)}</div>
   </>
+}
+
+// Bulk-add teams from a CSV file or cells pasted from Excel / Google Sheets.
+function ImportTeams({ tm, tid, run }) {
+  const [open, setOpen] = useState(false), [txt, setTxt] = useState(''), [busy, setBusy] = useState(false)
+  const key = r => [r.player1, r.player2].map(x => x.trim().toLowerCase()).sort().join('|')
+  const res = useMemo(() => {
+    const { rows, errors } = parseTeams(txt), have = new Set(tm.map(key)), fresh = [], dup = []
+    rows.forEach(r => { if (have.has(key(r))) dup.push(r); else { have.add(key(r)); fresh.push(r) } })
+    return { fresh, dup, errors }
+  }, [txt, tm])
+  const pickFile = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) setTxt(await f.text()) }
+  const template = () => {
+    const csv = '\uFEFFsep=;\nplayer1;player2;team name;group\nAndi;Budi;Team Elang;A\nCandra;Dewi;Team Rajawali;A\nEko;Fajar;;B\n'
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'courtline-teams-template.csv'; a.click()
+  }
+  const go = async () => {
+    setBusy(true)
+    const ok = await run(supabase.from('teams').insert(res.fresh.map(r => ({ ...r, tournament_id: tid }))))
+    setBusy(false)
+    if (ok) { setTxt(''); setOpen(false) }
+  }
+  return <div className="imp">
+    <button className="btn o sm" onClick={() => setOpen(!open)}>{open ? 'Close import' : 'Import teams from CSV / Excel'}</button>
+    {open && <div className="editbox">
+      <p className="muted">Columns: <b>player1, player2, team name (optional), group</b>. Upload a .csv file, or copy the cells from Excel / Google Sheets and paste them below. In Excel you can also use File → Save As → CSV.</p>
+      <div className="ctrl">
+        <label className="btn o sm">Choose CSV file<input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={pickFile} /></label>
+        <button className="btn o sm" onClick={template}>Download template</button>
+      </div>
+      <textarea className="ta" rows={7} spellCheck={false} placeholder={'player1;player2;team name;group\nAndi;Budi;Team Elang;A'} value={txt} onChange={e => setTxt(e.target.value)} />
+      {txt.trim() && <div className="imps">
+        <p><b>{res.fresh.length}</b> team(s) ready to import{res.dup.length > 0 && <> · <b>{res.dup.length}</b> skipped (already exist)</>}{res.errors.length > 0 && <> · <b>{res.errors.length}</b> row(s) with problems</>}</p>
+        {res.errors.length > 0 && <ul className="errs">{res.errors.slice(0, 8).map(x => <li key={x}>{x}</li>)}{res.errors.length > 8 && <li>…and {res.errors.length - 8} more</li>}</ul>}
+        {res.fresh.length > 0 && <div className="scroll"><table className="tb left"><tbody>{res.fresh.slice(0, 40).map((r, i) => <tr key={i}><td><b>{r.name}</b></td><td>{r.player1} / {r.player2}</td><td>Group {r.grp}</td></tr>)}</tbody></table></div>}
+        {res.fresh.length > 40 && <p className="muted">Showing the first 40 of {res.fresh.length}.</p>}
+      </div>}
+      <div className="ctrl"><button className="btn sm" disabled={!res.fresh.length || busy} onClick={go}>{busy ? 'Importing…' : `Import ${res.fresh.length} team(s)`}</button></div>
+    </div>}
+  </div>
 }
 
 function Teams({ tm, tours, tid, run }) {
@@ -181,6 +259,7 @@ function Teams({ tm, tours, tid, run }) {
       <select value={tf.grp} onChange={set('grp')}>{GROUPS.map(g => <option key={g} value={g}>Group {g}</option>)}</select>
       <button className="btn">Add team</button>
     </form>
+    <ImportTeams tm={tm} tid={tid} run={run} />
     <div className="items">{tm.map(t => eid === t.id
       ? <div className="item editing" key={t.id}>
         <div className="fm">
@@ -234,6 +313,30 @@ function Tournaments({ tours, run }) {
         <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
           <button className="btn o sm danger" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id))}>Delete</button></div>
       </div>)}</div>
+  </div>
+}
+
+function Announce({ ann, run }) {
+  const [f, setF] = useState({ message: '', level: 'info' })
+  const add = e => {
+    e.preventDefault()
+    const message = f.message.trim(); if (!message) return
+    run(supabase.from('announcements').insert({ message, level: f.level })); setF({ message: '', level: 'info' })
+  }
+  return <div className="panel"><h3>Announcements</h3>
+    <p className="muted">Shown as a banner at the top of every page and on the TV screen while it is visible. Viewers get a notification if they turned on "Notify me".</p>
+    <form className="fm" onSubmit={add}>
+      <input required className="wide" maxLength={200} placeholder="e.g. Schedule delayed 30 minutes due to rain" value={f.message} onChange={e => setF({ ...f, message: e.target.value })} />
+      <select value={f.level} onChange={e => setF({ ...f, level: e.target.value })}><option value="info">Notice</option><option value="warning">Important</option></select>
+      <button className="btn">Post</button>
+    </form>
+    <div className="items">{ann.map(a => <div className="item" key={a.id}>
+      <div className="im"><b>{a.message}</b><small>{a.level === 'warning' ? 'Important' : 'Notice'} · {a.active ? 'Visible' : 'Hidden'} · {fmtDate(a.created_at)} {fmtTime(a.created_at)}</small></div>
+      <div className="ia">
+        <button className="btn o sm" onClick={() => run(supabase.from('announcements').update({ active: !a.active }).eq('id', a.id))}>{a.active ? 'Hide' : 'Show'}</button>
+        <button className="btn o sm danger" onClick={() => confirm('Delete this announcement?') && run(supabase.from('announcements').delete().eq('id', a.id))}>Delete</button>
+      </div></div>)}</div>
+    {!ann.length && <p className="muted">No announcements yet.</p>}
   </div>
 }
 
@@ -300,7 +403,7 @@ function Settings({ me, admin, run, load }) {
   </>
 }
 
-export default function Admin({ matches, teams, tours, tid, load, onBack }) {
+export default function Admin({ matches, teams, tours, ann = [], tid, load, onBack }) {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [tab, setTab] = useState('matches'), [at, setAt] = useState('')
   useEffect(() => {
     supabase.auth.getSession().then(r => setSession(r.data.session))
@@ -330,9 +433,9 @@ export default function Admin({ matches, teams, tours, tid, load, onBack }) {
   if (me === null) return <p className="muted">Loading…</p>
   if (me === false) return <div className="empty">This account has no staff access.<br /><button className="btn" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
   const admin = me.role === 'admin'
-  const run = async p => { const { error } = await p; if (error) alert(error.message); load() }
+  const run = async p => { const { error } = await p; if (error) alert(error.message); load(); return !error }
   const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at)
-  const tabs = [['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['tournaments', 'Tournaments']] : []), ['settings', 'Settings']]
+  const tabs = [['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements']] : []), ['settings', 'Settings']]
   const needT = (tab === 'matches' || tab === 'teams') && !at
   return <div className="adm">
     <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
@@ -342,6 +445,7 @@ export default function Admin({ matches, teams, tours, tid, load, onBack }) {
     {tab === 'matches' && !needT && <Matches tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} />}
     {tab === 'teams' && admin && !needT && <Teams tm={tm} tours={tours} tid={at} run={run} />}
     {tab === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}
+    {tab === 'announcements' && admin && <Announce ann={ann} run={run} />}
     {tab === 'settings' && <Settings me={me} admin={admin} run={run} load={load} />}
   </div>
 }

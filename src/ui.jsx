@@ -30,3 +30,35 @@ export function Card({ m, children }) {
     </div>
   )
 }
+
+// Announcement banner. Viewers can dismiss an announcement for the current session; the TV screen always shows them.
+const hidden = () => { try { return JSON.parse(sessionStorage.getItem('cl-ann') || '[]') } catch { return [] } }
+export function AnnounceBar({ items, tv }) {
+  const [hid, setHid] = useState(hidden)
+  const list = (items || []).filter(a => a.active && (tv || !hid.includes(a.id)))
+  if (!list.length) return null
+  const close = id => { const n = [...hid, id]; setHid(n); try { sessionStorage.setItem('cl-ann', JSON.stringify(n)) } catch { /* private mode */ } }
+  return <div className={'ann' + (tv ? ' tv' : '')}>{list.map(a => <div key={a.id} className={'an ' + a.level} role="status">
+    <b>{a.level === 'warning' ? 'IMPORTANT' : 'NOTICE'}</b><p>{a.message}</p>
+    {!tv && <button className="x" aria-label="Dismiss" onClick={() => close(a.id)}>×</button>}
+  </div>)}</div>
+}
+
+// "Install app" button: uses the browser's install prompt (Android/Chrome/Edge) or explains Add to Home Screen on iPhone.
+export function InstallButton() {
+  const [ev, setEv] = useState(window.__bip || null), [done, setDone] = useState(false)
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream
+  useEffect(() => {
+    const on = e => { e.preventDefault(); window.__bip = e; setEv(e) }
+    const ins = () => { window.__bip = null; setEv(null); setDone(true) }
+    window.addEventListener('beforeinstallprompt', on); window.addEventListener('appinstalled', ins)
+    return () => { window.removeEventListener('beforeinstallprompt', on); window.removeEventListener('appinstalled', ins) }
+  }, [])
+  if (standalone || done || (!ev && !ios)) return null
+  const go = async () => {
+    if (!ev) return alert('To install: tap the Share button in Safari, then choose "Add to Home Screen".')
+    ev.prompt(); await ev.userChoice.catch(() => {}); window.__bip = null; setEv(null)
+  }
+  return <button className="btn o sm" onClick={go}>Install app</button>
+}

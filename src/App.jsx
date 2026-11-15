@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from './supabase'
-import { Card, Clock } from './ui'
+import { Card, Clock, AnnounceBar, InstallButton } from './ui'
 import { label } from './score'
 import { fmtDay, fmtTime, fmtDate, ini, share, tn, rule } from './util'
 import { table } from './standings'
@@ -20,14 +20,15 @@ const TABS = [['live', 'Live'], ['schedule', 'Schedule'], ['bracket', 'Bracket']
 const Ico = ({ k }) => <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[k]}</svg>
 
 function useData() {
-  const [matches, setM] = useState([]), [teams, setT] = useState([]), [tours, setTo] = useState([]), mref = useRef([])
+  const [matches, setM] = useState([]), [teams, setT] = useState([]), [tours, setTo] = useState([]), [ann, setAnn] = useState([]), mref = useRef([])
   mref.current = matches
   const load = useCallback(async () => {
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, d] = await Promise.all([
       supabase.from('matches').select(Q).order('start_at'),
       supabase.from('teams').select('*').order('name'),
-      supabase.from('tournaments').select('*').order('created_at')])
-    setM(a.data || []); setT(b.data || []); setTo(c.data || [])
+      supabase.from('tournaments').select('*').order('created_at'),
+      supabase.from('announcements').select('*').order('created_at', { ascending: false })])
+    setM(a.data || []); setT(b.data || []); setTo(c.data || []); setAnn(d.data || [])
   }, [])
   useEffect(() => {
     load()
@@ -38,11 +39,13 @@ function useData() {
           new Notification('Match started', { body: `${tn(old.t1) || 'TBD'} vs ${tn(old.t2) || 'TBD'} · ${old.court}` })
         if (old && old.team1 === p.new.team1 && old.team2 === p.new.team2) return setM(ms => ms.map(x => x.id === p.new.id ? { ...x, ...p.new } : x))
       }
+      if (p.table === 'announcements' && p.eventType === 'INSERT' && p.new.active && window.Notification?.permission === 'granted')
+        new Notification(p.new.level === 'warning' ? 'Important' : 'Announcement', { body: p.new.message })
       load()
     }).subscribe()
     return () => supabase.removeChannel(ch)
   }, [load])
-  return { matches, teams, tours, load }
+  return { matches, teams, tours, ann, load }
 }
 
 function Banner({ one, matches, teams }) {
@@ -140,10 +143,11 @@ function Results({ matches }) {
   </>
 }
 
-function TV({ matches, exit }) {
+function TV({ matches, ann, exit }) {
   const live = matches.filter(m => m.status === 'live'), next = matches.filter(m => m.status === 'scheduled').slice(0, 3)
   return <div className="tv">
     <div className="tvh"><div className="logo">Court<span>line</span></div><Clock /><button className="btn g" onClick={exit}>Exit</button></div>
+    <AnnounceBar items={ann} tv />
     <h3 className="sec">Live</h3>{live.length ? <div className="grid">{live.map(m => <Card key={m.id} m={m} />)}</div> : <p>No live matches.</p>}
     {next.length > 0 && <><h3 className="sec">Up next</h3><div className="grid">{next.map(m => <Card key={m.id} m={m} />)}</div></>}
   </div>
@@ -161,7 +165,7 @@ export default function App() {
   const pick = x => tid === 'all' || x.tournament_id === tid
   const tours = d.tours.filter(t => tid === 'all' || t.id === tid)
   const f = { tours, teams: d.teams.filter(pick), matches: d.matches.filter(pick).map(m => ({ ...m, tname: tid === 'all' ? tmap[m.tournament_id] : null })), one: tid === 'all' ? null : tours[0] }
-  if (tab === 'tv') return <TV matches={f.matches} exit={() => setTab('live')} />
+  if (tab === 'tv') return <TV matches={f.matches} ann={d.ann} exit={() => setTab('live')} />
   const admin = tab === 'admin'
   return <>
     <header className="bar"><div className="bi">
@@ -169,11 +173,13 @@ export default function App() {
       <nav>{TABS.map(([k, v]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{v}</button>)}</nav>
       <Clock />
     </div></header>
+    <AnnounceBar items={d.ann} />
     <main className="wrap" id="content">
       {!admin && <Banner {...f} />}
       {!admin && <div className="tools">
         <select value={tid} onChange={e => setTid(e.target.value)}><option value="all">All tournaments</option>{d.tours.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
         {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => setTab(t => t))}>Notify me</button>}
+        <InstallButton />
       </div>}
       {tab === 'live' && <Live {...f} />}
       {tab === 'schedule' && <Schedule {...f} />}

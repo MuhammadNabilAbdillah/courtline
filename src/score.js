@@ -24,3 +24,9 @@ export function label(p, i, g, golden, target) {
   if (p[0] >= 3 && p[1] >= 3) return golden || p[i] === p[1 - i] ? '40' : p[i] > p[1 - i] ? 'AD' : '40'
   return ['0', '15', '30', '40'][p[i]]
 }
+
+// Works out who has won the match from manually entered sets: 0 = team 1, 1 = team 2, null = not decided yet.
+export function settle(sets, bestOf) {
+  const a = sets.filter(s => s[0] > s[1]).length, b = sets.filter(s => s[1] > s[0]).length
+  return a > bestOf / 2 ? 0 : b > bestOf / 2 ? 1 : null
+}

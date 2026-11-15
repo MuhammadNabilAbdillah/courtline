@@ -1,4 +1,4 @@
--- Courtline v4. Run the whole file in Supabase > SQL Editor (safe to re-run).
+-- Courtline v5. Run the whole file in Supabase > SQL Editor (safe to re-run).
 
 -- PART 1: tables (new installs) + upgrades (existing installs)
 create table if not exists tournaments (
@@ -76,6 +76,20 @@ create policy "admin manage staff" on staff for all to authenticated using (is_a
 do $$ begin alter publication supabase_realtime add table tournaments; exception when others then null; end $$;
 do $$ begin alter publication supabase_realtime add table teams; exception when others then null; end $$;
 do $$ begin alter publication supabase_realtime add table matches; exception when others then null; end $$;
+
+-- Announcements (banner shown to everyone; only admins can write)
+create table if not exists announcements (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  level text not null default 'info' check (level in ('info','warning')),
+  active boolean not null default true,
+  created_at timestamptz default now()
+);
+alter table announcements enable row level security;
+drop policy if exists "read announcements" on announcements; drop policy if exists "admin announcements" on announcements;
+create policy "read announcements" on announcements for select using (true);
+create policy "admin announcements" on announcements for all to authenticated using (is_admin()) with check (is_admin());
+do $$ begin alter publication supabase_realtime add table announcements; exception when others then null; end $$;
 
 -- PART 3: first admin.
 -- 1) Supabase > Authentication > Users > Add user:
