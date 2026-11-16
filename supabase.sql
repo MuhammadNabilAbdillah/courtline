@@ -1,4 +1,4 @@
--- Courtline v6. Run the whole file in Supabase > SQL Editor (safe to re-run).
+-- Courtline v8 (HIPMI Bontang Padel Cup). Run the whole file in Supabase > SQL Editor (safe to re-run).
 
 -- PART 1: tables (new installs) + upgrades (existing installs)
 create table if not exists tournaments (
@@ -46,6 +46,7 @@ alter table matches add column if not exists locked boolean not null default fal
 alter table matches add column if not exists wo boolean not null default false;      -- walkover (opponent did not show)
 alter table matches add column if not exists referee text;
 alter table matches add column if not exists notes text;
+alter table matches add column if not exists points jsonb not null default '[]';  -- point-by-point log: [{t:0|1, at:ms, sc:"3-2"}]
 
 -- PART 2: security (safe to re-run)
 create table if not exists staff (

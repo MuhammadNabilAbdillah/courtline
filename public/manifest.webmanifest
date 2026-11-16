@@ -1,7 +1,7 @@
 {
-  "name": "Courtline — Padel Live Score",
-  "short_name": "Courtline",
-  "description": "Live padel scores, schedule, bracket and results.",
+  "name": "HIPMI Bontang Padel Cup 2026",
+  "short_name": "HIPMI Padel Cup",
+  "description": "HIPMI Bontang Padel Cup 2026 at Vamos Arena Fit: live scores, schedule, bracket and results.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { supabase, SB_URL, SB_KEY } from './supabase'
-import { addPoint, settle, isRace } from './score'
+import { settle, isRace } from './score'
+import { pointPatch, undoPatch, logAdd, logReset } from './engine'
+import { enqueue, overlay, useOutbox, setSyncHook } from './outbox'
+import { ScorerHome, SyncBadge } from './Scorer'
+import { EventSettings } from './Event'
+import { StandingsPanel } from './AdminRank'
 import { Card } from './ui'
 import { resolve } from './standings'
 import { BracketView } from './Bracket'
@@ -151,9 +156,9 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
   const saveNotes = (m, v) => { upd(m, v, 'Updated referee/notes', mname(m)); setNoting(null) }
   const point = (m, t) => {
     if (m.status !== 'live') return
-    const cur = { sets: m.sets, g: m.g, p: m.p }, n = addPoint(cur, t, m.golden, m.best_of, m.target, isRace(m)), fin = n.winner !== null
-    upd(m, { sets: n.sets, g: n.g, p: n.p, history: [...m.history.slice(-30), cur], status: fin ? 'finished' : 'live', winner: fin ? (n.winner ? m.team2 : m.team1) : null, ...(fin ? lockOn : {}) },
-      fin ? 'Match finished' : undefined, fin ? `${mname(m)}: ${scoreText({ ...m, sets: n.sets, g: [0, 0], status: 'finished' })}` : undefined)
+    const { patch, fin, sc } = pointPatch(m, t, settings.autoLock)
+    enqueue(m, patch) // applied at once, sent in the background (kept on the phone if the signal drops)
+    if (fin) log('Match finished', `${mname(m)}: ${sc}`)
   }
   const saveRace = (m, v) => {
     const [a, b] = v.p, hi = Math.max(a, b), done = hi === m.target, w = a > b ? 0 : 1
@@ -161,7 +166,7 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
     if (done && a === b) return alert('The scores cannot be tied at the target.')
     if (!confirm(done ? `Save the corrected score? ${tn(w ? m.t2 : m.t1)} will be the winner.` : 'Save the corrected score? The match will continue as live.')) return
     const nx = { ...m, sets: done ? [[a, b]] : [], p: done ? [0, 0] : [a, b], g: [0, 0], status: done ? 'finished' : 'live', wo: false }
-    upd(m, { sets: nx.sets, g: [0, 0], p: nx.p, history: [...m.history.slice(-30), { sets: m.sets, g: m.g, p: m.p }], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}) },
+    upd(m, { sets: nx.sets, g: [0, 0], p: nx.p, history: [...m.history.slice(-30), { sets: m.sets, g: m.g, p: m.p }], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}), ...logAdd(m, { t: null, at: Date.now(), sc: scoreText(nx).replace('*', ''), note: 'Score corrected' }) },
       'Corrected score', `${mname(m)}: ${scoreText(m) || '0-0'} → ${scoreText(nx) || '0-0'}`)
     setScoring(null)
   }
@@ -174,11 +179,11 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
     if (!confirm(msg)) return
     const cur = { sets: m.sets, g: m.g, p: m.p }
     const nx = { ...m, sets: v.sets, g: done ? [0, 0] : v.g, status: done ? 'finished' : 'live', wo: false }
-    upd(m, { sets: v.sets, g: nx.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}) },
+    upd(m, { sets: v.sets, g: nx.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}), ...logAdd(m, { t: null, at: Date.now(), sc: scoreText(nx).replace('*', ''), note: 'Score corrected' }) },
       'Corrected score', `${mname(m)}: ${scoreText(m) || '0-0'} → ${scoreText(nx) || '0-0'}`)
     setScoring(null)
   }
-  const undo = m => { const h = [...m.history], prev = h.pop(); if (prev) upd(m, { ...prev, history: h, status: 'live', winner: null, wo: false }, 'Undo', mname(m)) }
+  const undo = m => { const u = undoPatch(m); if (u) { enqueue(m, u); log('Undo', mname(m)) } }
   const delay = async () => {
     const list = ms.filter(m => m.status === 'scheduled')
     if (!list.length || !confirm(`Move ${list.length} upcoming match(es) ${dl} minutes later?`)) return
@@ -191,7 +196,7 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
     const changed = v.team1 !== m.team1 || v.team2 !== m.team2 || v.best_of !== m.best_of || (v.target || null) !== (m.target || null) || v.scoring !== (m.scoring || 'tennis') || v.golden !== m.golden
     if (m.status !== 'scheduled' && changed) {
       if (!confirm('Changing teams or scoring rules resets the score of this match. Continue?')) return
-      Object.assign(v, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false })
+      Object.assign(v, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false, ...logReset(m) })
     }
     if (!ask({ ...m, ...v })) return
     upd(m, v, 'Edited match', `${mname(m)}: ${diff(m, v) || 'rules'}${v.status === 'scheduled' && m.status !== 'scheduled' ? ' (score reset)' : ''}`); setEditing(null)
@@ -243,7 +248,7 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
           {admin && <button className="btn o sm" onClick={() => lock(m, false)}>Unlock</button>}
           {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}</div> :
         <div className="ctrl">
-          {m.status === 'scheduled' && <button className="btn sm" onClick={() => upd(m, { status: 'live' }, 'Started match', mname(m))} disabled={!m.team1 || !m.team2}>Start match</button>}
+          {m.status === 'scheduled' && <button className="btn sm" onClick={() => { enqueue(m, { status: 'live' }); log('Started match', mname(m)) }} disabled={!m.team1 || !m.team2}>Start match</button>}
           {m.status === 'live' && <>
             <button className="btn sm" onClick={() => point(m, 0)}>+ {tn(m.t1)}</button>
             <button className="btn sm" onClick={() => point(m, 1)}>+ {tn(m.t2)}</button>
@@ -254,7 +259,7 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
           {admin && m.status === 'finished' && <button className="btn o sm" onClick={() => lock(m, true)}>Lock result</button>}
           {admin && <button className="btn o sm" onClick={() => setEditing(m.id)}>Edit</button>}
           {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}
-          {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false }, 'Reset match', mname(m))}>Reset</button>}
+          {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false, ...logReset(m) }, 'Reset match', mname(m))}>Reset</button>}
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Delete</button>}
         </div>}
     </Card></div>)}</div>
@@ -450,6 +455,7 @@ function Settings({ me, admin, run, load, settings, save }) {
     {admin && <>
       <SystemCheck />
       <SiteSettings settings={settings} save={save} />
+      <EventSettings settings={settings} save={save} />
       <TimeSettings settings={settings} save={save} />
       <RuleSettings settings={settings} save={save} />
       <CourtsPanel settings={settings} save={save} />
@@ -468,8 +474,12 @@ function Settings({ me, admin, run, load, settings, save }) {
   </>
 }
 
-export default function Admin({ matches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
+export default function Admin({ matches: serverMatches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [tab, setTab] = useState('matches'), [at, setAt] = useState('')
+  const ob = useOutbox()
+  const matches = useMemo(() => overlay(serverMatches, ob.items), [serverMatches, ob.items]) // this phone's not-yet-sent points shown on top
+  useEffect(() => { setSyncHook(load); return () => setSyncHook(null) }, [load])
+  useEffect(() => { if (me && me.role !== 'admin') setTab('scorer') }, [me && me.user_id]) // scorers land straight on the scorer screen
   useEffect(() => {
     supabase.auth.getSession().then(r => setSession(r.data.session))
     const { data } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
@@ -513,13 +523,15 @@ export default function Admin({ matches, teams, tours, ann = [], settings, tid, 
     log(act || 'Updated settings', detail); load(); return true
   }
   const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at)
-  const tabs = [['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements'], ['export', 'Export'], ['history', 'History']] : []), ['settings', 'Settings']]
+  const tabs = [['scorer', 'Scorer'], ['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['standings', 'Standings'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements'], ['export', 'Export'], ['history', 'History']] : []), ['settings', 'Settings']]
   const needT = (tab === 'matches' || tab === 'teams') && !at
   return <div className="adm">
-    <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
+    <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><div className="ctrl"><SyncBadge /><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div></div>
     <div className="subnav">{tabs.map(([k, v]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{v}</button>)}</div>
     {(tab === 'matches' || tab === 'teams') && tours.length > 0 && <div className="tools"><select value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {genderLabel(t.gender)} {t.level}</option>)}</select></div>}
     {needT && <div className="empty">Create a tournament first{admin ? ' in the Tournaments tab.' : '.'}</div>}
+    {tab === 'scorer' && <ScorerHome matches={matches} settings={settings} />}
+    {tab === 'standings' && admin && <StandingsPanel tours={tours} teams={teams} matches={matches} settings={settings} save={save} />}
     {tab === 'matches' && !needT && <Matches tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} />}
     {tab === 'teams' && admin && !needT && <Teams tm={tm} ms={ms} tours={tours} tid={at} run={run} load={load} settings={settings} />}
     {tab === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}

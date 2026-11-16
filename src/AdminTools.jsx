@@ -189,6 +189,8 @@ export function SystemCheck() {
     }
     const c = await supabase.from('matches').select('scoring,locked,wo,referee,notes').limit(1)
     add('Match columns (scoring, lock, walkover, notes)', c.error ? 'bad' : 'ok', c.error ? c.error.message : '')
+    const pc = await supabase.from('matches').select('points').limit(1)
+    add('Point-by-point history column (points)', pc.error ? 'bad' : 'ok', pc.error ? pc.error.message : '')
     const f = await supabase.rpc('admin_reset_password', { target: '00000000-0000-0000-0000-000000000000', new_password: 'systemcheck' })
     add('Function: reset staff password', f.error && /could not find|schema cache|does not exist/i.test(f.error.message) ? 'bad' : 'ok', f.error && /could not find|schema cache|does not exist/i.test(f.error.message) ? f.error.message : '')
     const rt = await new Promise(res => {

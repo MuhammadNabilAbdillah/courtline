@@ -4,20 +4,22 @@ import { table } from './standings'
 import { tn, fmtDate, fmtTime, rule, rd, share, waLink, matchUrl, genderLabel } from './util'
 import { isRace } from './score'
 import { t } from './i18n'
+import { PointLog, TurnCard } from './Public'
 
 export function GroupTable({ g, teams, matches, hl }) {
   const { go } = useContext(Ctx)
   const rows = table(teams.filter(x => x.grp === g), matches)
   return <div className="gt"><h3>{t('Group')} {g}</h3><div className="scroll"><table className="tb">
     <thead><tr><th>{t('TEAM')}</th><th>G</th><th>W-L-T</th><th>{t('DIFF')}</th><th>+M</th><th>P</th></tr></thead>
-    <tbody>{rows.map((r, i) => <tr key={r.t.id} className={hl === r.t.id ? 'me' : ''}><td>{i + 1}. <button className="tl" onClick={() => go('/team/' + r.t.id)}>{tn(r.t)}</button></td><td>{r.g}</td><td>{r.w}-{r.l}-{r.tie}</td><td>{r.diff}</td><td>{r.gw}</td><td>{r.pts}</td></tr>)}</tbody></table></div></div>
+    <tbody>{rows.map((r, i) => <tr key={r.t.id} className={hl === r.t.id ? 'me' : ''}><td>{i + 1}. <button className="tl" onClick={() => go('/team/' + r.t.id)}>{tn(r.t)}</button></td><td>{r.g}</td><td>{r.w}-{r.l}-{r.tie}</td><td>{r.diff}</td><td>{r.gw}</td><td>{r.pts}</td></tr>)}</tbody></table></div>
+    <p className="muted tbn">{rows.manual ? t('Order set by the organisers.') : t('If level: wins, head-to-head, point difference, points scored.')}</p></div>
 }
 
 const Back = ({ back }) => <button className="link back" onClick={back}>← {t('Back')}</button>
 
 // Team profile: record, group position and every match of the team
-export function TeamPage({ id, teams, matches, tours, back, ready }) {
-  const { favs, toggle } = useContext(Ctx)
+export function TeamPage({ id, teams, matches, tours, back, ready, est = {} }) {
+  const { favs, toggle, go } = useContext(Ctx)
   const team = teams.find(x => x.id === id)
   if (!team) return <><Back back={back} /><div className="empty">{ready ? t('Team not found') : t('Loading…')}</div></>
   const tour = tours.find(x => x.id === team.tournament_id), fav = favs.includes(id)
@@ -39,6 +41,7 @@ export function TeamPage({ id, teams, matches, tours, back, ready }) {
       <div className="bst"><div><b>{wins}</b><span>{t('Won')}</span></div><div><b>{done.length - wins}</b><span>{t('Lost')}</span></div><div><b>{rank ? '#' + rank : '–'}</b><span>{t('Group rank')}</span></div></div>
     </section>
     <div className="tools"><button className={'btn sm' + (fav ? '' : ' o')} onClick={() => toggle(id)}>{fav ? '★ ' + t('In your favourites') : '☆ ' + t('Add to favourites')}</button></div>
+    {up.length > 0 && <div className="one"><TurnCard team={team} matches={matches} est={est} go={go} /></div>}
     {up.length > 0 && <><h3 className="sec">{t('Live & upcoming')} <span className="chip">{up.length}</span></h3><div className="grid">{up.map(m => <Card key={m.id} m={m} />)}</div></>}
     {done.length > 0 && <><h3 className="sec">{t('Match history')} <span className="chip">{done.length}</span></h3><div className="grid">{[...done].reverse().map(m => <Card key={m.id} m={m} />)}</div></>}
     {!mine.length && <div className="empty">{t('No matches yet.')}</div>}
@@ -75,5 +78,6 @@ export function MatchPage({ id, matches, back, ready }) {
         <button className="btn o sm" onClick={copy}>{t('Copy link')}</button>
       </div>
     </div>
+    <PointLog m={m} />
   </>
 }

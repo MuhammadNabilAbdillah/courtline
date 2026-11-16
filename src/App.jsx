@@ -1,10 +1,14 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useContext } from 'react'
 import { supabase } from './supabase'
 import { Card, Clock, AnnounceBar, InstallButton, Ctx, Brand, Feature, QRCode } from './ui'
 import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, genderLabel } from './util'
 import { BracketView, virtualKO } from './Bracket'
 import { GroupTable, TeamPage, MatchPage } from './Team'
 import PrintSheet from './Print'
+import { MyTurn, TeamsPage, CourtGrid, Countdown } from './Public'
+import { InfoPage } from './Event'
+import { estimates } from './turn'
+import { setRankOverrides } from './standings'
 import Admin from './Admin'
 import { t } from './i18n'
 
@@ -15,9 +19,11 @@ const ICONS = {
   bracket: <path d="M4 5h5v4H4zM4 15h5v4H4zM15 10h5v4h-5zM9 7h3v10H9M12 12h3" />,
   results: <path d="M8 4h8v5a4 4 0 01-8 0zM8 6H4v1a3 3 0 003 3M16 6h4v1a3 3 0 01-3 3M12 13v4M8 20h8" />,
   tv: <><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8M12 17v4" /></>,
+  teams: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0112 0M16 5a3.2 3.2 0 010 6M18 20a6 6 0 00-3-5.2" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>,
   admin: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></>
 }
-const TABS = [['live', 'Live'], ['schedule', 'Schedule'], ['bracket', 'Bracket'], ['results', 'Results'], ['tv', 'TV'], ['admin', 'Admin']]
+const TABS = [['live', 'Live'], ['schedule', 'Schedule'], ['bracket', 'Bracket'], ['results', 'Results'], ['teams', 'Teams'], ['info', 'Info'], ['tv', 'TV'], ['admin', 'Admin']]
 const Ico = ({ k }) => <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[k]}</svg>
 
 function useData() {
@@ -32,7 +38,8 @@ function useData() {
       supabase.from('announcements').select('*').order('created_at', { ascending: false }),
       supabase.from('settings').select('*').eq('id', 'main').maybeSingle()])
     setM(a.data || []); setT(b.data || []); setTo(c.data || []); setAnn(d.data || [])
-    setSet({ ...DEFAULTS, ...((e.data && e.data.data) || {}) }); setReady(true)
+    const sd = (e.data && e.data.data) || {}
+    setSet({ ...DEFAULTS, ...sd, name: sd.name || DEFAULTS.name, venue: sd.venue || DEFAULTS.venue, dates: sd.dates || DEFAULTS.dates }); setReady(true)
   }, [])
   useEffect(() => {
     load()
@@ -61,11 +68,12 @@ function useData() {
 function Banner({ one, matches, teams, site }) {
   const live = matches.filter(m => m.status === 'live').length, today = matches.filter(m => fmtDay(m.start_at) === fmtDay(new Date())).length
   const ko = matches.some(m => m.round !== 'Group Stage')
+  const kick = matches.length && !matches.some(m => m.status !== 'scheduled') ? Math.min(...matches.map(m => +new Date(m.start_at))) : 0
   return <section className="banner">
     <div>
-      <small>{one ? `${genderLabel(one.gender)} · ${one.level}` : t('ALL TOURNAMENTS')}</small>
-      <h1>{one ? one.name : t('Padel live scores')}</h1>
-      <div className="tmeta">{one && <><span>{ko ? t('Knockout Stage') : t('Group Stage')}</span>{one.start_date && <span>{fmtDate(one.start_date)}</span>}</>}{site.dates && <span>{site.dates}</span>}{site.venue && <span>{site.venue}</span>}</div>
+      <small>{one ? `${genderLabel(one.gender)} · ${one.level}` : t('PADEL LIVE SCORE')}</small>
+      <h1>{one ? one.name : (site.name || t('Padel live scores'))}</h1>
+      <div className="tmeta">{one && <><span>{ko ? t('Knockout Stage') : t('Group Stage')}</span>{one.start_date && <span>{fmtDate(one.start_date)}</span>}</>}{site.dates && <span>{site.dates}</span>}{site.venue && <span>{site.venue}</span>}{kick > 0 && <Countdown target={kick} />}</div>
     </div>
     <div className="bst"><div><b>{live}</b><span>{t('Live')}</span></div><div><b>{today}</b><span>{t('Today')}</span></div><div><b>{teams.length}</b><span>{t('Teams')}</span></div></div>
   </section>
@@ -97,11 +105,12 @@ function Courts({ matches, courts }) {
   })}</div></>
 }
 
-function Live({ matches, favs, courts, tours = [], teams = [] }) {
+function Live({ matches, favs, courts, tours = [], teams = [], top = null }) {
   const byFav = (a, b) => hasFav(b, favs) - hasFav(a, favs) // your teams first, otherwise time order is kept
   const live = matches.filter(m => m.status === 'live').sort(byFav), next = matches.filter(m => m.status === 'scheduled').sort(byFav).slice(0, favs.length ? 6 : 4)
   return <>
     <Champions tours={tours} teams={teams} matches={matches} />
+    {top}
     {live[0] && <Feature m={live[0]} />}
     <h3 className="sec">{t('Live now')} <span className="chip">{live.length}</span></h3>
     {live.length ? <div className="grid">{live.map(m => <Card key={m.id} m={m} />)}</div> : <div className="empty">{t('No matches are live right now.')}</div>}
@@ -112,21 +121,26 @@ function Live({ matches, favs, courts, tours = [], teams = [] }) {
 
 const MineToggle = ({ on, set, favs }) => favs.length > 0 && <button className={'btn sm' + (on ? '' : ' o')} onClick={() => set(!on)}>★ {t('My teams')}</button>
 
-function Schedule({ matches, favs, onPrint }) {
-  const [q, setQ] = useState(''), [mine, setMine] = useState(false)
-  const list = matches.filter(m => m.status !== 'finished' && (!mine || hasFav(m, favs)) &&
-    (tn(m.t1) + tn(m.t2) + m.t1?.player1 + m.t1?.player2 + m.t2?.player1 + m.t2?.player2 + m.court + m.round).toLowerCase().includes(q.toLowerCase()))
+function Schedule({ matches, favs, onPrint, est = {}, courts = [] }) {
+  const { go } = useContext(Ctx)
+  const [q, setQ] = useState(''), [mine, setMine] = useState(false), [view, setView] = useState('list')
+  const hit = m => (!mine || hasFav(m, favs)) &&
+    (tn(m.t1) + tn(m.t2) + m.t1?.player1 + m.t1?.player2 + m.t2?.player1 + m.t2?.player2 + m.court + m.round).toLowerCase().includes(q.toLowerCase())
+  const list = matches.filter(m => m.status !== 'finished' && hit(m))
   const days = [...new Set(list.map(m => fmtDay(m.start_at)))]
   return <>
     <h3 className="sec">{t('Schedule')}</h3>
     <div className="tools">
       <input className="search" placeholder={t('Search team, player, court or round…')} value={q} onChange={e => setQ(e.target.value)} />
       <MineToggle on={mine} set={setMine} favs={favs} />
+      <button className={'btn sm' + (view === 'list' ? '' : ' o')} onClick={() => setView('list')}>{t('List')}</button>
+      <button className={'btn sm' + (view === 'courts' ? '' : ' o')} onClick={() => setView('courts')}>{t('By court')}</button>
       <button className="btn o sm" onClick={() => onPrint('schedule')}>{t('Print schedule')}</button>
     </div>
-    {days.length ? days.map(d => <div key={d}><div className="day">{d}</div><div className="card list">
+    {view === 'courts' ? <CourtGrid matches={matches.filter(hit)} courts={courts} est={est} favs={favs} go={go} /> :
+    days.length ? days.map(d => <div key={d}><div className="day">{d}</div><div className="card list">
       {list.filter(m => fmtDay(m.start_at) === d).map(m => <div className={'srow' + (hasFav(m, favs) ? ' fav' : '')} key={m.id}>
-        <div className="st"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small></div>
+        <div className="st"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small>{est[m.id] && est[m.id].late && m.status === 'scheduled' && <small className="late">~{fmtTime(new Date(Math.round(est[m.id].start / 3e5) * 3e5))}</small>}</div>
         <div className="sm"><b>{tn(m.t1) || m.slot1 || t('TBD')}</b> <span>{t('vs')}</span> <b>{tn(m.t2) || m.slot2 || t('TBD')}</b>
           <small>{rd(m.round)}{m.tname ? ` · ${m.tname}` : ''} · {rule(m)}</small></div>
         <span className={'badge ' + (m.status === 'live' ? 'live' : '')}>{m.status === 'live' ? t('LIVE') : t('UPCOMING')}</span></div>)}
@@ -184,11 +198,12 @@ const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice
 
 export default function App() {
   const [tab, setTab] = useState('live'), [tid, setTid] = useState('all'), d = useData(), first = useRef(true)
-  const [favs, setFavs] = useState(readFavs), [print, setPrint] = useState(null), [, bump] = useState(0)
+  const [favs, setFavs] = useState(readFavs), [print, setPrint] = useState(null), [, bump] = useState(0), [now, setNow] = useState(Date.now())
   const [theme, setTheme] = useState(() => { try { const s = localStorage.getItem('cl-theme'); if (s) return s } catch { /* no storage */ } return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' })
   const hash = useHash(), route = /^#\/(match|team)\/([\w-]+)$/.exec(hash)
   const S = d.settings, lang = 'en'
-  setCfg({ tz: S.tz, hour12: S.hour12 }) // before anything renders, so every time on screen uses the configured zone
+  setCfg({ tz: S.tz, hour12: S.hour12, name: S.name }) // before anything renders, so every time on screen uses the configured zone
+  setRankOverrides(S.rankOverrides) // manual group rankings set by an admin
 
   const brand = /^#[0-9a-f]{6}$/i.test(S.color) ? S.color : DEFAULTS.color
   document.documentElement.style.setProperty('--b', brand); document.documentElement.style.setProperty('--bd', shade(brand, .7))
@@ -204,6 +219,7 @@ export default function App() {
     document.querySelector('.bar nav .on, .tabbar .on')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
   }, [tab])
   useEffect(() => { if (route) window.scrollTo(0, 0) }, [hash])
+  useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(i) }, [])
 
   const toggle = id => setFavs(f => { const n = f.includes(id) ? f.filter(x => x !== id) : [...f, id]; writeFavs(n); return n })
   const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* private mode */ } }
@@ -215,7 +231,7 @@ export default function App() {
   const tours = d.tours.filter(x => tid === 'all' || x.id === tid)
   const f = { tours, teams: d.teams.filter(pick), matches: d.matches.filter(pick).map(m => ({ ...m, tname: tid === 'all' ? tmap[m.tournament_id] : null })), one: tid === 'all' ? null : tours[0] }
   const ctx = { favs, toggle, go }
-  const courts = activeCourts(S)
+  const courts = activeCourts(S), est = estimates(d.matches, now), info = tab === 'info' && !route
 
   if (print) return <PrintSheet kind={print.kind} tours={d.tours} teams={d.teams} matches={all} tid={print.tid ?? tid} site={S} onClose={() => setPrint(null)} />
   if (tab === 'tv') return <Ctx.Provider value={ctx}><TV matches={f.matches} ann={d.ann} site={S} exit={() => setTab('live')} /></Ctx.Provider>
@@ -228,23 +244,25 @@ export default function App() {
     </div></header>
     <AnnounceBar items={d.ann} />
     <main className="wrap" id="content">
-      {!admin && !route && <Banner {...f} site={S} />}
+      {!admin && !route && !info && <Banner {...f} site={S} />}
       {!admin && <div className="tools">
-        {!route && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
+        {!route && !info && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
         {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => bump(n => n + 1))}>{t('Notify me')}</button>}
         <InstallButton />
         <span className="tsp" />
         <button className="btn o sm" onClick={flip} aria-label={t('Dark mode')} title={t('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
       </div>}
       {route && route[1] === 'match' && <MatchPage id={route[2]} matches={all} back={back} ready={d.ready} />}
-      {route && route[1] === 'team' && <TeamPage id={route[2]} teams={d.teams} matches={all} tours={d.tours} back={back} ready={d.ready} />}
-      {!route && tab === 'live' && <Live {...f} favs={favs} courts={courts} />}
-      {!route && tab === 'schedule' && <Schedule {...f} favs={favs} onPrint={kind => setPrint({ kind })} />}
+      {route && route[1] === 'team' && <TeamPage id={route[2]} teams={d.teams} matches={all} tours={d.tours} back={back} ready={d.ready} est={est} />}
+      {!route && tab === 'live' && <Live {...f} favs={favs} courts={courts} top={<MyTurn favs={favs} teams={d.teams} matches={all} est={est} go={go} toTeams={() => nav('teams')} />} />}
+      {!route && tab === 'schedule' && <Schedule {...f} favs={favs} est={est} courts={courts} onPrint={kind => setPrint({ kind })} />}
       {!route && tab === 'bracket' && <BracketPage {...f} />}
       {!route && tab === 'results' && <Results {...f} favs={favs} />}
+      {!route && tab === 'teams' && <TeamsPage teams={f.teams} tours={f.tours} matches={f.matches} favs={favs} toggle={toggle} go={go} />}
+      {info && <InfoPage site={S} matches={all} onTv={() => nav('tv')} />}
       {admin && <Admin {...d} tid={tid} onBack={() => setTab('live')} onPrint={(kind, id) => setPrint({ kind, tid: id })} />}
     </main>
     <footer>{S.name || 'Courtline'}</footer>
-    <nav className="tabbar">{TABS.map(([k, v]) => <button key={k} className={tab === k && !route ? 'on' : ''} onClick={() => nav(k)}><Ico k={k} />{t(v)}</button>)}</nav>
+    <nav className="tabbar">{TABS.filter(([k]) => k !== 'tv').map(([k, v]) => <button key={k} className={tab === k && !route ? 'on' : ''} onClick={() => nav(k)}><Ico k={k} />{t(v)}</button>)}</nav>
   </Ctx.Provider>
 }

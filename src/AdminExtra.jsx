@@ -77,7 +77,7 @@ export function HistoryPanel() {
   useEffect(() => { load() }, [])
   const list = (rows || []).filter(r => `${r.actor} ${r.action} ${r.detail || ''}`.toLowerCase().includes(q.toLowerCase()))
   return <div className="panel"><div className="ph"><h3>Change history</h3><button className="btn o sm" onClick={load}>Refresh</button></div>
-    <p className="muted">Who changed a score, schedule, team or setting, and when. Individual points are not listed; the final result of each match is.</p>
+    <p className="muted">Who changed a score, schedule, team or setting, and when. Individual points are not listed here; open a match page to see its point-by-point history.</p>
     <div className="fm"><input className="wide" placeholder="Search name, action or match…" value={q} onChange={e => setQ(e.target.value)} /></div>
     {err && <p className="err">{err}{/relation|schema cache/i.test(err) ? ' — run the latest supabase.sql first.' : ''}</p>}
     {rows && <div className="scroll"><table className="tb left hist"><thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
@@ -103,9 +103,9 @@ export function SiteSettings({ settings, save }) {
   const pick = async e => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { setF({ ...f, logo: await readLogo(file) }) } catch (x) { alert(x.message) } }
   const ok = /^#[0-9a-f]{6}$/i.test(f.color)
   return <div className="panel"><h3>Site</h3>
-    <p className="muted">Event name, dates, venue, logo and main colour shown to everyone. Leave the name empty to keep "Courtline".</p>
+    <p className="muted">Event name, dates, venue, logo and main colour shown to everyone.</p>
     <div className="prev" style={{ background: ok ? f.color : DEFAULTS.color }}>
-      {f.logo ? <img src={f.logo} alt="" /> : <span className="pl">LOGO</span>}<b>{f.name || 'Courtline'}</b>
+      {f.logo ? <img src={f.logo} alt="" /> : <span className="pl">LOGO</span>}<b>{f.name}</b>
     </div>
     <div className="fm">
       <input className="wide" maxLength={60} placeholder="Event name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
@@ -117,7 +117,7 @@ export function SiteSettings({ settings, save }) {
       {f.logo && <button className="btn o" onClick={() => setF({ ...f, logo: '' })}>Remove logo</button>}
       <button className="btn o" onClick={() => setF({ ...f, color: DEFAULTS.color })}>Reset colour</button>
     </div>
-    <div className="ctrl"><button className="btn" disabled={!ok} onClick={() => save({ name: f.name.trim(), venue: f.venue.trim(), dates: f.dates.trim(), color: f.color, logo: f.logo }, 'Updated site settings', f.name.trim() || 'Courtline')}>Save site settings</button></div>
+    <div className="ctrl"><button className="btn" disabled={!ok} onClick={() => save({ name: f.name.trim(), venue: f.venue.trim(), dates: f.dates.trim(), color: f.color, logo: f.logo }, 'Updated site settings', f.name.trim())}>Save site settings</button></div>
   </div>
 }
 
