@@ -12,6 +12,7 @@ import { resolve } from './standings'
 import { BracketView } from './Bracket'
 import { emailOf, GENDERS, genderLabel, levelOptions, FORMATS, fmtOptions, fmtKey, fmtRow, clash, tn, parseTeams, fmtDate, fmtTime, activeCourts, scoreText } from './util'
 import { log, mname, CourtSelect, WalkoverBox, NoteBox, Reorder, ExportPanel, HistoryPanel, SiteSettings, TimeSettings, RuleSettings, CourtsPanel, BackupPanel } from './AdminExtra'
+import { Dashboard } from './AdminDash'
 import { DT, Overview, FixtureGenerator, DrawGroups, SystemCheck, woSets } from './AdminTools'
 
 const GROUPS = ['A', 'B', 'C', 'D', 'E', 'F']
@@ -504,9 +505,20 @@ const GI = {
   results: <path d="M8 4h8v5a4 4 0 01-8 0zM8 6H4v1a3 3 0 003 3M16 6h4v1a3 3 0 01-3 3M12 13v4M8 20h8" />,
   system: <><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /></>
 }
+const PI = { overview: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
+  scorer: <><rect x="7" y="2.5" width="10" height="19" rx="2" /><path d="M11 18h2" /></>, control: GI.setup, announcements: <path d="M4 10v4h3l7 4V6L7 10zM17 9a4 4 0 010 6" />,
+  tournaments: GI.results, teams: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0112 0M16 5a3.2 3.2 0 010 6M18 20a6 6 0 00-3-5.2" /></>,
+  fixtures: <path d="M12 5v14M5 12h14" />, timetable: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  standings: <path d="M5 20V10M12 20V4M19 20v-7" />, bracket: <path d="M4 5h5v4H4zM4 15h5v4H4zM15 10h5v4h-5zM9 7h3v10H9M12 12h3" />,
+  export: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />, site: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" /></>,
+  rules: GI.system, accounts: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></>,
+  backup: <><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></>,
+  history: <><path d="M3 12a9 9 0 109-9 9 9 0 00-6.7 3L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></> }
+const PIcon = ({ id }) => <svg className="pi" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{PI[id]}</svg>
+
 const NAV = [
   { id: 'day', label: 'Match day', pages: [
-    { id: 'overview', label: 'Overview', admin: 1, tour: 1, hint: 'How far the event has progressed and what needs your attention.' },
+    { id: 'overview', label: 'Dashboard', icon: 'dash', hint: 'The whole event at a glance: courts, next matches, results and what needs your attention.' },
     { id: 'scorer', label: 'Scorer', hint: 'Full-screen scoring for one court: two big +1 buttons and Undo. Keeps working with a weak signal.' },
     { id: 'control', label: 'Match control', tour: 1, hint: 'Start matches, add points, correct scores, record walkovers and notes for every match.' },
     { id: 'announcements', label: 'Announcements', admin: 1, hint: 'Messages shown at the top of the public site and on the TV screen.' }] },
@@ -530,7 +542,7 @@ const NAV = [
 export default function Admin({ matches: serverMatches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [page, setPageS] = useState(() => { try { return sessionStorage.getItem('adm_page') || '' } catch { return '' } }), [at, setAt] = useState(''), [focusId, setFocusId] = useState(null)
   const setPage = p => { setPageS(p); try { sessionStorage.setItem('adm_page', p) } catch {} window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const ob = useOutbox()
+  const [menu, setMenu] = useState(false), ob = useOutbox()
   const matches = useMemo(() => overlay(serverMatches, ob.items), [serverMatches, ob.items]) // this phone's not-yet-sent points shown on top
   useEffect(() => { setSyncHook(load); return () => setSyncHook(null) }, [load])
   useEffect(() => { if (me && me.role !== 'admin') setPage('scorer') }, [me && me.user_id]) // scorers land straight on the scorer screen
@@ -565,6 +577,17 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
     if (ups.length) Promise.all(ups.map(([id, v]) => supabase.from('matches').update(v).eq('id', id))).then(load)
   }, [matches, teams, me])
 
+  useEffect(() => { // body scroll lock + Esc while the menu is open; keep the admin bar under the site header
+    if (!menu) return
+    const k = e => e.key === 'Escape' && setMenu(false), o = document.body.style.overflow
+    document.body.style.overflow = 'hidden'; window.addEventListener('keydown', k)
+    return () => { document.body.style.overflow = o; window.removeEventListener('keydown', k) }
+  }, [menu])
+  useEffect(() => {
+    const f = () => { const b = document.querySelector('.bar'); if (b) document.documentElement.style.setProperty('--barh', b.offsetHeight + 'px') }
+    f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f)
+  }, [])
+
   if (session === undefined) return null
   if (!session) return <Login onBack={onBack} />
   if (me === null) return <p className="muted">Loading…</p>
@@ -584,21 +607,36 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
   const go = id => setPage(id)
   const focus = id => { setFocusId(id); if (id) setPage('control') }
   const label = p => p.id === 'accounts' && !admin ? 'My password' : p.label
-  const view = ['overview', 'control', 'fixtures', 'timetable', 'bracket'].includes(cur.id) ? cur.id : null
+  const view = ['control', 'fixtures', 'timetable', 'bracket'].includes(cur.id) ? cur.id : null
+  const pick = id => { setMenu(false); go(id) }
   return <div className="adm">
-    <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><div className="ctrl"><SyncBadge /><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div></div>
+    <div className="abar">
+      <button className="burger" onClick={() => setMenu(true)} aria-label="Open menu" aria-expanded={menu}><span /><span /><span /></button>
+      <div className="abt"><small>{cur.g.label}</small><b>{label(cur)}</b></div>
+      <div className="abr"><SyncBadge />{liveNow > 0 && <button className="lvp" onClick={() => go('control')}><i />{liveNow} live</button>}</div>
+    </div>
+    <div className={'drw' + (menu ? ' open' : '')} aria-hidden={!menu}>
+      <div className="drb" onClick={() => setMenu(false)} />
+      <aside className="drp" role="dialog" aria-label="Admin menu">
+        <div className="drh"><div className="av">{(me.username || '?').slice(0, 1).toUpperCase()}</div><div><b>{me.username}</b><small>{me.role}</small></div>
+          <button className="drx" onClick={() => setMenu(false)} aria-label="Close menu">×</button></div>
+        <nav className="dnav" aria-label="Admin sections">{groups.map(g => <div key={g.id} className="dg">
+          <div className="dgl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{GI[g.id]}</svg>{g.label}</div>
+          {g.pages.map(p => <button key={p.id} tabIndex={menu ? 0 : -1} className={'dp' + (p.id === cur.id ? ' on' : '')} onClick={() => pick(p.id)} aria-current={p.id === cur.id ? 'page' : undefined}>
+            <PIcon id={p.id} /><span>{label(p)}</span>{p.id === 'control' && liveNow > 0 && <i className="lv">{liveNow} live</i>}</button>)}
+        </div>)}</nav>
+        <div className="drf"><button className="btn o sm" onClick={onBack}>← Scoreboard</button><button className="btn o sm danger" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
+      </aside>
+    </div>
     <div className="alay">
-      <nav className="anav" aria-label="Admin sections">{groups.map(g => <div key={g.id} className={'ag' + (g.id === cur.g.id ? ' on' : '')}>
-        <button className="agh" onClick={() => g.id !== cur.g.id && go(g.pages[0].id)} aria-current={g.id === cur.g.id}><svg className="agi" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{GI[g.id]}</svg><span>{g.label}</span></button>
-        <div className="aps">{g.pages.map(p => <button key={p.id} className={'ap' + (p.id === cur.id ? ' on' : '')} onClick={() => go(p.id)} aria-current={p.id === cur.id ? 'page' : undefined}>{label(p)}{p.id === 'control' && liveNow > 0 && <i className="lv">{liveNow} live</i>}</button>)}</div>
-      </div>)}</nav>
       <section className="apage">
-        <header className="aphead"><div className="crumb">{cur.g.label} › {label(cur)}</div><h2>{label(cur)}</h2><p>{cur.hint}</p></header>
+        <header className={'aphead' + (cur.id === 'overview' ? ' hide' : '')}><div className="crumb">{cur.g.label} › {label(cur)}</div><h2>{label(cur)}</h2><p>{cur.hint}</p></header>
         {cur.tour && (tours.length ? <div className="tbar"><label htmlFor="admtour">Tournament</label>
           <select id="admtour" value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {genderLabel(t.gender)} {t.level}</option>)}</select>
           <span className="chip">{tm.length} teams</span><span className="chip">{ms.length} matches</span></div>
           : <div className="empty">Create a tournament first{admin ? '.' : ' (ask an admin).'}{admin && <button className="btn" onClick={() => go('tournaments')}>Create a tournament</button>}</div>)}
         {(!cur.tour || (tours.length > 0 && at)) && <>
+          {cur.id === 'overview' && <Dashboard me={me} admin={admin} matches={matches} teams={teams} tours={tours} ann={ann} settings={settings} go={go} openMatch={focus} />}
           {cur.id === 'scorer' && <ScorerHome matches={matches} settings={settings} />}
           {view && <Matches key={view} view={view} tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} focusId={focusId} onFocus={focus} go={go} />}
           {cur.id === 'announcements' && admin && <Announce ann={ann} run={run} />}
