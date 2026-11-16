@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from './supabase'
 import { Card, Clock, AnnounceBar, InstallButton, Ctx, Brand, Feature, QRCode } from './ui'
-import { fmtDay, fmtTime, fmtDate, tn, rule, rd, tzLabel, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav } from './util'
+import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, genderLabel } from './util'
 import { BracketView, virtualKO } from './Bracket'
 import { GroupTable, TeamPage, MatchPage } from './Team'
 import PrintSheet from './Print'
 import Admin from './Admin'
-import { t, getLang, setLang } from './i18n'
+import { t } from './i18n'
 
 const Q = '*, t1:teams!matches_team1_fkey(*), t2:teams!matches_team2_fkey(*)'
 const ICONS = {
@@ -58,17 +58,34 @@ function useData() {
   return { matches, teams, tours, ann, settings, ready, load }
 }
 
-function Banner({ one, matches, teams }) {
+function Banner({ one, matches, teams, site }) {
   const live = matches.filter(m => m.status === 'live').length, today = matches.filter(m => fmtDay(m.start_at) === fmtDay(new Date())).length
   const ko = matches.some(m => m.round !== 'Group Stage')
   return <section className="banner">
     <div>
-      <small>{one ? `${one.gender} · ${one.level}` : t('ALL TOURNAMENTS')}</small>
+      <small>{one ? `${genderLabel(one.gender)} · ${one.level}` : t('ALL TOURNAMENTS')}</small>
       <h1>{one ? one.name : t('Padel live scores')}</h1>
-      <div className="tmeta">{one && <><span>{ko ? t('Knockout Stage') : t('Group Stage')}</span>{one.start_date && <span>{fmtDate(one.start_date)}</span>}</>}<span>{t('All times in {0}', tzLabel())}</span></div>
+      <div className="tmeta">{one && <><span>{ko ? t('Knockout Stage') : t('Group Stage')}</span>{one.start_date && <span>{fmtDate(one.start_date)}</span>}</>}{site.dates && <span>{site.dates}</span>}{site.venue && <span>{site.venue}</span>}</div>
     </div>
     <div className="bst"><div><b>{live}</b><span>{t('Live')}</span></div><div><b>{today}</b><span>{t('Today')}</span></div><div><b>{teams.length}</b><span>{t('Teams')}</span></div></div>
   </section>
+}
+
+// Shown once a tournament's final has been played
+function Champions({ tours, teams, matches }) {
+  const rows = tours.map(tr => {
+    const ms = matches.filter(m => m.tournament_id === tr.id), fin = ms.find(m => m.round === 'Final' && m.status === 'finished'), th = ms.find(m => m.round === 'Third Place' && m.status === 'finished')
+    if (!fin) return null
+    const pick = (m, win) => (win ? (m.winner === m.team1 ? m.t1 : m.t2) : (m.winner === m.team1 ? m.t2 : m.t1))
+    return { tr, champ: pick(fin, true), runner: pick(fin, false), third: th ? pick(th, true) : null }
+  }).filter(Boolean)
+  if (!rows.length) return null
+  return rows.map(r => <section key={r.tr.id} className="champ">
+    <small>{t('CHAMPIONS')}{tours.length > 1 ? ` · ${r.tr.name}` : ''}</small>
+    <h2>🏆 {tn(r.champ)}</h2>
+    <p>{r.champ && `${r.champ.player1} / ${r.champ.player2}`}</p>
+    <div className="tmeta"><span>{t('Runner-up')}: {tn(r.runner)}</span>{r.third && <span>{t('Third place')}: {tn(r.third)}</span>}</div>
+  </section>)
 }
 
 function Courts({ matches, courts }) {
@@ -80,10 +97,11 @@ function Courts({ matches, courts }) {
   })}</div></>
 }
 
-function Live({ matches, favs, courts }) {
+function Live({ matches, favs, courts, tours = [], teams = [] }) {
   const byFav = (a, b) => hasFav(b, favs) - hasFav(a, favs) // your teams first, otherwise time order is kept
   const live = matches.filter(m => m.status === 'live').sort(byFav), next = matches.filter(m => m.status === 'scheduled').sort(byFav).slice(0, favs.length ? 6 : 4)
   return <>
+    <Champions tours={tours} teams={teams} matches={matches} />
     {live[0] && <Feature m={live[0]} />}
     <h3 className="sec">{t('Live now')} <span className="chip">{live.length}</span></h3>
     {live.length ? <div className="grid">{live.map(m => <Card key={m.id} m={m} />)}</div> : <div className="empty">{t('No matches are live right now.')}</div>}
@@ -100,7 +118,7 @@ function Schedule({ matches, favs, onPrint }) {
     (tn(m.t1) + tn(m.t2) + m.t1?.player1 + m.t1?.player2 + m.t2?.player1 + m.t2?.player2 + m.court + m.round).toLowerCase().includes(q.toLowerCase()))
   const days = [...new Set(list.map(m => fmtDay(m.start_at)))]
   return <>
-    <h3 className="sec">{t('Schedule')} <span className="chip">{tzLabel()}</span></h3>
+    <h3 className="sec">{t('Schedule')}</h3>
     <div className="tools">
       <input className="search" placeholder={t('Search team, player, court or round…')} value={q} onChange={e => setQ(e.target.value)} />
       <MineToggle on={mine} set={setMine} favs={favs} />
@@ -118,11 +136,11 @@ function Schedule({ matches, favs, onPrint }) {
 
 function BracketPage({ tours, teams, matches }) {
   if (!tours.length) return <div className="empty">{t('No tournaments yet.')}</div>
-  return <>{tours.map(tr => {
+  return <><Champions tours={tours} teams={teams} matches={matches} />{tours.map(tr => {
     const tm = teams.filter(x => x.tournament_id === tr.id), ms = matches.filter(x => x.tournament_id === tr.id)
     const groups = [...new Set(tm.map(x => x.grp))].sort(), real = ms.some(m => m.round !== 'Group Stage')
     return <div key={tr.id} className="tsec">
-      {tours.length > 1 && <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{tr.gender}</span><span className="chip">{tr.level}</span></div></div>}
+      {tours.length > 1 && <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{genderLabel(tr.gender)}</span><span className="chip">{tr.level}</span></div></div>}
       <h3 className="sec">{t('Bracket')} {!real && <span className="chip">{t('Projected')}</span>}</h3>
       <BracketView matches={real ? ms : virtualKO(tm)} title={tr.name} virtual={!real} />
       <div className="gg">{groups.map(g => <GroupTable key={g} g={g} teams={tm} matches={ms} />)}</div>
@@ -169,7 +187,7 @@ export default function App() {
   const [favs, setFavs] = useState(readFavs), [print, setPrint] = useState(null), [, bump] = useState(0)
   const [theme, setTheme] = useState(() => { try { const s = localStorage.getItem('cl-theme'); if (s) return s } catch { /* no storage */ } return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' })
   const hash = useHash(), route = /^#\/(match|team)\/([\w-]+)$/.exec(hash)
-  const S = d.settings, lang = getLang()
+  const S = d.settings, lang = 'en'
   setCfg({ tz: S.tz, hour12: S.hour12 }) // before anything renders, so every time on screen uses the configured zone
 
   const brand = /^#[0-9a-f]{6}$/i.test(S.color) ? S.color : DEFAULTS.color
@@ -189,7 +207,6 @@ export default function App() {
 
   const toggle = id => setFavs(f => { const n = f.includes(id) ? f.filter(x => x !== id) : [...f, id]; writeFavs(n); return n })
   const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* private mode */ } }
-  const switchLang = () => { setLang(lang === 'id' ? 'en' : 'id'); bump(n => n + 1) }
   const nav = k => { if (location.hash) location.hash = ''; setTab(k) }
 
   const tmap = Object.fromEntries(d.tours.map(x => [x.id, x.name]))
@@ -211,13 +228,12 @@ export default function App() {
     </div></header>
     <AnnounceBar items={d.ann} />
     <main className="wrap" id="content">
-      {!admin && !route && <Banner {...f} />}
+      {!admin && !route && <Banner {...f} site={S} />}
       {!admin && <div className="tools">
         {!route && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
         {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => bump(n => n + 1))}>{t('Notify me')}</button>}
         <InstallButton />
         <span className="tsp" />
-        <button className="btn o sm" onClick={switchLang} aria-label="Language" title="Bahasa / Language">{lang === 'id' ? 'EN' : 'ID'}</button>
         <button className="btn o sm" onClick={flip} aria-label={t('Dark mode')} title={t('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
       </div>}
       {route && route[1] === 'match' && <MatchPage id={route[2]} matches={all} back={back} ready={d.ready} />}
@@ -228,7 +244,7 @@ export default function App() {
       {!route && tab === 'results' && <Results {...f} favs={favs} />}
       {admin && <Admin {...d} tid={tid} onBack={() => setTab('live')} onPrint={(kind, id) => setPrint({ kind, tid: id })} />}
     </main>
-    <footer>{S.name || 'Courtline'} · {t('all times in {0}', tzLabel())}</footer>
+    <footer>{S.name || 'Courtline'}</footer>
     <nav className="tabbar">{TABS.map(([k, v]) => <button key={k} className={tab === k && !route ? 'on' : ''} onClick={() => nav(k)}><Ico k={k} />{t(v)}</button>)}</nav>
   </Ctx.Provider>
 }

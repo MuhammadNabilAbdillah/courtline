@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { fmtTime, clock, fmtFull, ini, share, tn, rule, rd, tzLabel } from './util'
-import { label } from './score'
+import { fmtTime, clock, fmtFull, ini, share, tn, rule, rd } from './util'
+import { label, pointLabel, isRace } from './score'
 import { t } from './i18n'
 import { qrMatrix } from './qr'
 
@@ -10,7 +10,7 @@ export const Ctx = createContext({ favs: [], toggle: () => {}, go: () => {} })
 export function Clock() {
   const [n, setN] = useState(new Date())
   useEffect(() => { const i = setInterval(() => setN(new Date()), 1000); return () => clearInterval(i) }, [])
-  return <div className="clock"><b>{clock(n)} <small>{tzLabel()}</small></b><span>{fmtFull(n)}</span></div>
+  return <div className="clock"><b>{clock(n)}</b><span>{fmtFull(n)}</span></div>
 }
 
 // Logo + event name (both can be changed in Admin > Settings > Site)
@@ -48,7 +48,7 @@ export function Card({ m, children, plain }) {
           </div>
           {team && !plain && <Star id={team.id} />}
           {m.sets.map((s, k) => <span key={k} className="set">{s[i]}</span>)}
-          {live && <><span className="set cur">{m.g[i]}</span><span className="pt">{label(m.p, i, m.g, m.golden, m.target)}</span></>}
+          {live && (isRace(m) ? <span className="set cur">{m.p[i]}</span> : <><span className="set cur">{m.g[i]}</span><span className="pt">{pointLabel(m, i)}</span></>)}
         </div>
       ))}
       {(m.wo || m.referee || m.notes) && <div className="mnote">
@@ -63,16 +63,16 @@ export function Card({ m, children, plain }) {
 
 // Big live scoreboard
 export function Feature({ m }) {
-  const n = m.sets.length + 1, cols = { gridTemplateColumns: '1fr' + ' 3.75rem'.repeat(n) }
+  const race = isRace(m), n = m.sets.length + 1, cols = { gridTemplateColumns: '1fr' + ' 3.75rem'.repeat(n) }
   const team = (tm, slot, i) => <div className={'tmx' + (i ? ' r' : '')}><div className="av">{ini(tn(tm) || slot)}</div><div><h3>{tn(tm) || slot || t('TBD')}</h3><small>{tm ? `${tm.player1} / ${tm.player2}` : ''}</small></div></div>
   return <div className="feature">
-    <div className="fh"><span className="badge live">{t('LIVE')}</span><span>{m.tname ? m.tname + ' · ' : ''}{m.court} · {rd(m.round)} · {rule(m)} · {m.golden ? t('Golden point') : t('Advantage')}</span><button className="btn g sm" onClick={() => share(m)}>{t('Share')}</button></div>
+    <div className="fh"><span className="badge live">{t('LIVE')}</span><span>{m.tname ? m.tname + ' · ' : ''}{m.court} · {rd(m.round)} · {rule(m)}{!race && ` · ${m.golden ? t('Golden point') : t('Advantage')}`}</span><button className="btn g sm" onClick={() => share(m)}>{t('Share')}</button></div>
     <div className="sb">{team(m.t1, m.slot1, 0)}
-      <div><div className="lbl">{t('CURRENT GAME')}</div><div className="pts"><b>{label(m.p, 0, m.g, m.golden, m.target)}</b><span>:</span><b className="dim">{label(m.p, 1, m.g, m.golden, m.target)}</b></div></div>
+      <div><div className="lbl">{race ? t('SCORE') : t('CURRENT GAME')}</div><div className="pts"><b>{pointLabel(m, 0)}</b><span>:</span><b className="dim">{pointLabel(m, 1)}</b></div></div>
       {team(m.t2, m.slot2, 1)}</div>
     <div className="scroll"><div className="tbl" style={cols}>
-      <div className="h">{t('TEAM')}</div>{m.sets.map((_, k) => <div key={k} className="h c">{t('SET')} {k + 1}</div>)}<div className="h c">{t('GAME')}</div>
-      {[[m.t1, m.slot1, 0], [m.t2, m.slot2, 1]].map(([tm, s, i]) => [<div key={'n' + i}>{tn(tm) || s}</div>, ...m.sets.map((x, k) => <div key={k} className="c">{x[i]}</div>), <div key={'g' + i} className="c on">{m.g[i]}</div>])}
+      <div className="h">{t('TEAM')}</div>{m.sets.map((_, k) => <div key={k} className="h c">{t('SET')} {k + 1}</div>)}<div className="h c">{race ? t('POINTS') : t('GAME')}</div>
+      {[[m.t1, m.slot1, 0], [m.t2, m.slot2, 1]].map(([tm, s, i]) => [<div key={'n' + i}>{tn(tm) || s}</div>, ...m.sets.map((x, k) => <div key={k} className="c">{x[i]}</div>), <div key={'g' + i} className="c on">{race ? m.p[i] : m.g[i]}</div>])}
     </div></div>
   </div>
 }

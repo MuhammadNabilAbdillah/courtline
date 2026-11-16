@@ -5,7 +5,7 @@ import { t } from './i18n'
 let NAVY = '#032a5f'
 const LINE = '#c9d5e8', MUTE = '#66779a', FF = "Sora, 'Segoe UI', Arial, sans-serif"
 export const ORDER = ['Round of 16', 'Quarterfinal', 'Semifinal', 'Final']
-const score = (m, i) => m.status === 'scheduled' ? '' : [...m.sets.map(s => s[i]), ...(m.status === 'live' ? [m.g[i]] : [])].join(' ')
+const score = (m, i) => m.status === 'scheduled' ? '' : [...m.sets.map(s => s[i]), ...(m.status === 'live' ? [m.scoring === 'race' ? m.p[i] : m.g[i]] : [])].join(' ')
 const cut = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s
 
 // Projected knockout bracket (not saved) for 1 or 2 groups, shown before the real one is generated

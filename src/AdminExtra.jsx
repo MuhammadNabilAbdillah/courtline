@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
-import { FORMATS, TZS, courtList, fmtDate, fmtTime, tzLabel, tn, DEFAULTS } from './util'
+import { FORMATS, fmtOptions, TZS, courtList, fmtDate, fmtTime, tzLabel, tn, DEFAULTS } from './util'
 import { exportXlsx } from './export'
 
 // Change history: written by every staff action that matters (the server fills in who did it)
@@ -99,23 +99,25 @@ const readLogo = file => new Promise((res, rej) => {
 })
 
 export function SiteSettings({ settings, save }) {
-  const [f, setF] = useState({ name: settings.name || '', color: settings.color || DEFAULTS.color, logo: settings.logo || '' })
+  const [f, setF] = useState({ name: settings.name || '', venue: settings.venue || '', dates: settings.dates || '', color: settings.color || DEFAULTS.color, logo: settings.logo || '' })
   const pick = async e => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { setF({ ...f, logo: await readLogo(file) }) } catch (x) { alert(x.message) } }
   const ok = /^#[0-9a-f]{6}$/i.test(f.color)
   return <div className="panel"><h3>Site</h3>
-    <p className="muted">Event name, logo and main colour shown to everyone. Leave the name empty to keep "Courtline".</p>
+    <p className="muted">Event name, dates, venue, logo and main colour shown to everyone. Leave the name empty to keep "Courtline".</p>
     <div className="prev" style={{ background: ok ? f.color : DEFAULTS.color }}>
       {f.logo ? <img src={f.logo} alt="" /> : <span className="pl">LOGO</span>}<b>{f.name || 'Courtline'}</b>
     </div>
     <div className="fm">
-      <input className="wide" maxLength={60} placeholder="Event name, e.g. Padel Cup 2026" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+      <input className="wide" maxLength={60} placeholder="Event name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+      <input maxLength={60} placeholder="Dates, e.g. 05 & 06 December 2026 (optional)" value={f.dates} onChange={e => setF({ ...f, dates: e.target.value })} />
+      <input maxLength={60} placeholder="Venue (optional)" value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} />
       <label className="colorp">Main colour <input type="color" value={ok ? f.color : DEFAULTS.color} onChange={e => setF({ ...f, color: e.target.value })} /></label>
       <input placeholder="#032a5f" maxLength={7} value={f.color} onChange={e => setF({ ...f, color: e.target.value })} />
       <label className="btn o">Choose logo<input type="file" accept="image/*" hidden onChange={pick} /></label>
       {f.logo && <button className="btn o" onClick={() => setF({ ...f, logo: '' })}>Remove logo</button>}
       <button className="btn o" onClick={() => setF({ ...f, color: DEFAULTS.color })}>Reset colour</button>
     </div>
-    <div className="ctrl"><button className="btn" disabled={!ok} onClick={() => save({ name: f.name.trim(), color: f.color, logo: f.logo }, 'Updated site settings', f.name.trim() || 'Courtline')}>Save site settings</button></div>
+    <div className="ctrl"><button className="btn" disabled={!ok} onClick={() => save({ name: f.name.trim(), venue: f.venue.trim(), dates: f.dates.trim(), color: f.color, logo: f.logo }, 'Updated site settings', f.name.trim() || 'Courtline')}>Save site settings</button></div>
   </div>
 }
 
@@ -136,9 +138,9 @@ export function RuleSettings({ settings, save }) {
   return <div className="panel"><h3>Default match rules</h3>
     <p className="muted">Pre-filled when you schedule a match or generate the knockout stage, so you do not have to pick them every time.</p>
     <div className="fm">
-      <select value={f.fmt} onChange={e => setF({ ...f, fmt: e.target.value })}>{Object.entries(FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-      <select value={f.golden} onChange={e => setF({ ...f, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>
-      <select value={f.duration} onChange={e => setF({ ...f, duration: +e.target.value })}>{[30, 45, 60, 75, 90, 120].map(x => <option key={x} value={x}>{x} min</option>)}</select>
+      <select value={f.fmt} onChange={e => setF({ ...f, fmt: e.target.value })}>{fmtOptions(f.fmt).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+      {FORMATS[f.fmt].scoring !== 'race' && <select value={f.golden} onChange={e => setF({ ...f, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>}
+      <select value={[15, 20, 25, 30, 40, 45, 60, 75, 90, 120].includes(f.duration) ? f.duration : 30} onChange={e => setF({ ...f, duration: +e.target.value })}>{[15, 20, 25, 30, 40, 45, 60, 75, 90, 120].map(x => <option key={x} value={x}>{x} min</option>)}</select>
       <label className="chk full"><input type="checkbox" checked={f.autoLock} onChange={e => setF({ ...f, autoLock: e.target.checked })} /> Lock a match automatically when it finishes (an admin can unlock it)</label>
     </div>
     <div className="ctrl"><button className="btn" onClick={() => save(f, 'Updated default rules', `${f.fmt}, ${f.golden ? 'golden point' : 'advantage'}, ${f.duration} min${f.autoLock ? ', auto-lock' : ''}`)}>Save defaults</button></div>

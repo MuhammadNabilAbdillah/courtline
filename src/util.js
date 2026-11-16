@@ -2,7 +2,7 @@ import { getLang, t } from './i18n'
 
 // ---- site configuration (set from Admin > Settings, applied at runtime) ----
 export const DEFAULT_COURTS = ['Court 1', 'Court 2', 'Court 3', 'Court 4']
-export const DEFAULTS = { name: '', logo: '', color: '#032a5f', tz: 'Asia/Makassar', hour12: false, fmt: 'bo3', golden: true, duration: 60, courts: [], autoLock: false }
+export const DEFAULTS = { name: '', logo: '', color: '#032a5f', venue: '', dates: '', tz: 'Asia/Makassar', hour12: false, fmt: 'race6', golden: true, duration: 30, courts: [], autoLock: false }
 export const cfg = { tz: DEFAULTS.tz, hour12: false }
 export const setCfg = o => Object.assign(cfg, o)
 export const TZS = [['Asia/Jakarta', 'WIB (UTC+7)'], ['Asia/Makassar', 'WITA (UTC+8)'], ['Asia/Jayapura', 'WIT (UTC+9)'], ['Asia/Singapore', 'Singapore (UTC+8)'], ['UTC', 'UTC']]
@@ -38,16 +38,25 @@ export const fromLocal = v => {
 
 export const ini = n => (n || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 export const emailOf = u => `${u.trim().toLowerCase()}@courtline.app`
-export const GENDERS = ['Men', 'Women']
-export const LEVELS = ['Bronze', 'Lower Bronze', 'Upper Beginner', 'Beginner']
+export const GENDERS = ['Men', 'Women'] // stored values (the database only accepts these two)
+export const genderLabel = g => g === 'Men' ? "Men's" : g === 'Women' ? "Women's" : g
+export const LEVELS = ['Bronze', 'Lower Bronze', 'Beginner']
+export const levelOptions = cur => !cur || LEVELS.includes(cur) ? LEVELS : [...LEVELS, cur] // an older tournament keeps its old level in the list
 export const FORMATS = {
-  bo3: { best_of: 3, target: null, label: 'Best of 3 sets' },
-  bo1: { best_of: 1, target: null, label: '1 set' },
-  ft5: { best_of: 1, target: 5, label: 'First to 5 games' },
-  ft7: { best_of: 1, target: 7, label: 'First to 7 games' }
+  race6: { best_of: 1, target: 6, scoring: 'race', label: 'Race to 6 points' },
+  race5: { best_of: 1, target: 5, scoring: 'race', label: 'Race to 5 points' },
+  race4: { best_of: 1, target: 4, scoring: 'race', label: 'Race to 4 points' },
+  // older formats: still work for matches that already use them, but are no longer offered for new matches
+  bo3: { best_of: 3, target: null, scoring: 'tennis', label: 'Best of 3 sets' },
+  bo1: { best_of: 1, target: null, scoring: 'tennis', label: '1 set' },
+  ft5: { best_of: 1, target: 5, scoring: 'tennis', label: 'First to 5 games' },
+  ft7: { best_of: 1, target: 7, scoring: 'tennis', label: 'First to 7 games' }
 }
-export const fmtKey = m => Object.keys(FORMATS).find(k => FORMATS[k].best_of === m.best_of && FORMATS[k].target === (m.target || null)) || 'bo3'
-export const rule = m => m.target ? t('First to {0}', m.target) : m.best_of === 1 ? t('1 set') : t('Best of 3')
+export const SELECTABLE = ['race6', 'race5', 'race4']
+export const fmtOptions = cur => (!cur || SELECTABLE.includes(cur) ? SELECTABLE : [...SELECTABLE, cur]).map(k => [k, FORMATS[k].label])
+export const fmtKey = m => Object.keys(FORMATS).find(k => FORMATS[k].best_of === m.best_of && FORMATS[k].target === (m.target || null) && FORMATS[k].scoring === (m.scoring || 'tennis')) || 'race6'
+export const fmtRow = k => { const F = FORMATS[k] || FORMATS.race6; return { best_of: F.best_of, target: F.target, scoring: F.scoring } }
+export const rule = m => m.scoring === 'race' ? t('Race to {0} points', m.target) : m.target ? t('First to {0}', m.target) : m.best_of === 1 ? t('1 set') : t('Best of 3')
 export const rd = r => t(r)
 export const tn = t => t ? (t.name || `${t.player1} x ${t.player2}`) : null
 const endOf = m => new Date(m.start_at).getTime() + (m.duration || 60) * 6e4
@@ -55,7 +64,7 @@ export const clash = (a, b) => new Date(a.start_at).getTime() < endOf(b) && new 
 
 // ---- sharing: every match has its own link ----
 export const matchUrl = m => `${location.origin}${location.pathname}#/match/${m.id}`
-const shareText = m => `${tn(m.t1) || 'TBD'} vs ${tn(m.t2) || 'TBD'} · ${m.court} · ${fmtTime(m.start_at)} ${tzLabel()}`
+const shareText = m => `${tn(m.t1) || 'TBD'} vs ${tn(m.t2) || 'TBD'} · ${m.court} · ${fmtTime(m.start_at)}`
 export const waLink = m => `https://wa.me/?text=${encodeURIComponent(shareText(m) + ' ' + matchUrl(m))}`
 export const share = m => {
   const text = shareText(m), url = matchUrl(m)
@@ -72,7 +81,7 @@ export const hasFav = (m, favs) => !!favs.length && [m.team1, m.team2].some(x =>
 export const scoreText = m => {
   if (m.status === 'scheduled') return ''
   const s = m.sets.map(x => x.join('-'))
-  if (m.status === 'live') s.push(m.g.join('-') + '*')
+  if (m.status === 'live') s.push((m.scoring === 'race' ? m.p : m.g).join('-') + '*')
   return s.join('  ') + (m.wo ? '  WO' : '')
 }
 

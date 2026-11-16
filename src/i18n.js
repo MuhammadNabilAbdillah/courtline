@@ -1,6 +1,6 @@
-// Tiny translation helper. English text is the key; Indonesian lives in ID below (filled in at the end of this file).
+// Tiny translation helper. English text is the key. The site is English-only for now: `lang` is fixed to 'en'.
+// To bring Indonesian back, start `lang` from localStorage / navigator.language again and add the language button in App.jsx.
 let lang = 'en'
-try { lang = localStorage.getItem('cl-lang') || ((navigator.language || '').toLowerCase().startsWith('id') ? 'id' : 'en') } catch { /* no storage */ }
 export const getLang = () => lang
 export const setLang = l => { lang = l; try { localStorage.setItem('cl-lang', l) } catch { /* private mode */ } if (typeof document !== 'undefined') document.documentElement.lang = l }
 export const ID = {

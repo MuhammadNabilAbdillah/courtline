@@ -1,6 +1,6 @@
 import { makeXlsx } from './xlsx'
 import { table } from './standings'
-import { tn, fmtDate, fmtTime, scoreText, tzLabel } from './util'
+import { tn, fmtDate, fmtTime, scoreText } from './util'
 
 const save = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000) }
 
@@ -8,7 +8,7 @@ const save = (blob, name) => { const a = document.createElement('a'); a.href = U
 export function exportXlsx({ tours, teams, matches, tid }) {
   const ts = tid === 'all' ? tours : tours.filter(x => x.id === tid)
   const standings = [['Tournament', 'Group', 'Rank', 'Team', 'Players', 'Played', 'Won', 'Lost', 'Games won', 'Games lost', 'Game diff', 'Points']]
-  const results = [['Tournament', 'Round', 'Date', `Time (${tzLabel()})`, 'Court', 'Team A', 'Team B', 'Score', 'Winner', 'Status', 'Walkover', 'Referee', 'Notes']]
+  const results = [['Tournament', 'Round', 'Date', 'Time', 'Court', 'Team A', 'Team B', 'Score', 'Winner', 'Status', 'Walkover', 'Referee', 'Notes']]
   const roster = [['Tournament', 'Group', 'Team', 'Player 1', 'Player 2']]
   ts.forEach(tour => {
     const tm = teams.filter(x => x.tournament_id === tour.id), ms = matches.filter(x => x.tournament_id === tour.id)

@@ -41,6 +41,7 @@ alter table matches add column if not exists slot1 text;
 alter table matches add column if not exists slot2 text;
 alter table matches add column if not exists duration int not null default 60;
 alter table matches add column if not exists target int;
+alter table matches add column if not exists scoring text not null default 'tennis';  -- 'race' = Race to N points
 alter table matches add column if not exists locked boolean not null default false;  -- final score locked
 alter table matches add column if not exists wo boolean not null default false;      -- walkover (opponent did not show)
 alter table matches add column if not exists referee text;

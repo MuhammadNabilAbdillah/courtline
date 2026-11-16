@@ -1,7 +1,8 @@
 import { useContext } from 'react'
 import { Ctx, Card, Feature } from './ui'
 import { table } from './standings'
-import { tn, fmtDate, fmtTime, rule, rd, share, waLink, matchUrl, tzLabel } from './util'
+import { tn, fmtDate, fmtTime, rule, rd, share, waLink, matchUrl, genderLabel } from './util'
+import { isRace } from './score'
 import { t } from './i18n'
 
 export function GroupTable({ g, teams, matches, hl }) {
@@ -31,9 +32,9 @@ export function TeamPage({ id, teams, matches, tours, back, ready }) {
     <Back back={back} />
     <section className="banner">
       <div>
-        <small>{tour ? `${tour.gender} · ${tour.level}` : ''}</small>
+        <small>{tour ? `${genderLabel(tour.gender)} · ${tour.level}` : ''}</small>
         <h1>{tn(team)}</h1>
-        <div className="tmeta"><span>{team.player1} / {team.player2}</span><span>{t('Group')} {team.grp}</span><span>{t('Games')} {gw}-{gl}</span></div>
+        <div className="tmeta"><span>{team.player1} / {team.player2}</span><span>{t('Group')} {team.grp}</span><span>{mine.some(isRace) ? t('Points') : t('Games')} {gw}-{gl}</span></div>
       </div>
       <div className="bst"><div><b>{wins}</b><span>{t('Won')}</span></div><div><b>{done.length - wins}</b><span>{t('Lost')}</span></div><div><b>{rank ? '#' + rank : '–'}</b><span>{t('Group rank')}</span></div></div>
     </section>
@@ -61,8 +62,8 @@ export function MatchPage({ id, matches, back, ready }) {
         {m.tname && <><span>{t('Tournament')}</span><b>{m.tname}</b></>}
         <span>{t('Round')}</span><b>{rd(m.round)}</b>
         <span>{t('Court')}</span><b>{m.court}</b>
-        <span>{t('Start')}</span><b>{fmtDate(m.start_at)} · {fmtTime(m.start_at)} {tzLabel()}</b>
-        <span>{t('Format')}</span><b>{rule(m)} · {m.golden ? t('Golden point') : t('Advantage')}</b>
+        <span>{t('Start')}</span><b>{fmtDate(m.start_at)} · {fmtTime(m.start_at)}</b>
+        <span>{t('Format')}</span><b>{rule(m)}{!isRace(m) && ` · ${m.golden ? t('Golden point') : t('Advantage')}`}</b>
       </div>
       <div className="ctrl">
         {m.t1 && <button className="btn o sm" onClick={() => go('/team/' + m.t1.id)}>{tn(m.t1)}</button>}
