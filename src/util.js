@@ -40,6 +40,8 @@ export const ini = n => (n || '?').split(' ').map(w => w[0]).join('').slice(0, 2
 export const emailOf = u => `${u.trim().toLowerCase()}@courtline.app`
 export const GENDERS = ['Men', 'Women'] // stored values (the database only accepts these two)
 export const genderLabel = g => g === 'Men' ? "Men's" : g === 'Women' ? "Women's" : g
+// Tournament name + Men's/Women's (unless the name already says it, e.g. "BEGINNER MEN")
+export const tourLabel = x => !x ? '' : /\b(men|women|putra|putri|pria|wanita)\b/i.test(x.name || '') ? x.name : `${x.name} · ${genderLabel(x.gender)}`
 export const LEVELS = ['Bronze', 'Lower Bronze', 'Beginner']
 export const levelOptions = cur => !cur || LEVELS.includes(cur) ? LEVELS : [...LEVELS, cur] // an older tournament keeps its old level in the list
 export const FORMATS = {

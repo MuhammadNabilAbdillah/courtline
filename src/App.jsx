@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useContext } from 'react'
 import { supabase } from './supabase'
 import { Card, Clock, AnnounceBar, InstallButton, Ctx, Brand, Feature, QRCode } from './ui'
-import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, genderLabel } from './util'
+import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, genderLabel, tourLabel } from './util'
 import { BracketView, virtualKO } from './Bracket'
 import { GroupTable, TeamPage, MatchPage } from './Team'
 import PrintSheet from './Print'
@@ -225,7 +225,7 @@ export default function App() {
   const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* private mode */ } }
   const nav = k => { if (location.hash) location.hash = ''; setTab(k) }
 
-  const tmap = Object.fromEntries(d.tours.map(x => [x.id, x.name]))
+  const tmap = Object.fromEntries(d.tours.map(x => [x.id, tourLabel(x)]))
   const all = d.matches.map(m => ({ ...m, tname: tmap[m.tournament_id] }))
   const pick = x => tid === 'all' || x.tournament_id === tid
   const tours = d.tours.filter(x => tid === 'all' || x.id === tid)
@@ -246,7 +246,7 @@ export default function App() {
     <main className="wrap" id="content">
       {!admin && !route && !info && <Banner {...f} site={S} />}
       {!admin && <div className="tools">
-        {!route && !info && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select>}
+        {!route && !info && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{tourLabel(x)}</option>)}</select>}
         {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => bump(n => n + 1))}>{t('Notify me')}</button>}
         <InstallButton />
         <span className="tsp" />
