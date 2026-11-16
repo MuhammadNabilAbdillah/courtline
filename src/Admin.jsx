@@ -5,14 +5,15 @@ import { addPoint, settle } from './score'
 import { Card } from './ui'
 import { resolve } from './standings'
 import { BracketView } from './Bracket'
-import { toLocal, fromLocal, emailOf, GENDERS, LEVELS, FORMATS, clash, tn, parseTeams, fmtDate, fmtTime } from './util'
+import { toLocal, fromLocal, emailOf, GENDERS, LEVELS, FORMATS, clash, tn, parseTeams, fmtDate, fmtTime, activeCourts, scoreText, tzLabel } from './util'
+import { log, mname, CourtSelect, WalkoverBox, NoteBox, Reorder, ExportPanel, HistoryPanel, SiteSettings, TimeSettings, RuleSettings, CourtsPanel, BackupPanel } from './AdminExtra'
 
 const HH = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MM = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'))
 const GROUPS = ['A', 'B', 'C', 'D', 'E', 'F']
 const ROUNDS = ['Group Stage', 'Round of 16', 'Quarterfinal', 'Semifinal', 'Third Place', 'Final']
 
-// Date + 24h time picker (5-minute steps), always in WITA
+// Date + 24h time picker (5-minute steps), in the event time zone from Settings
 function DT({ value, onChange }) {
   const l = toLocal(value), d = l.slice(0, 10), h = l.slice(11, 13), m = l.slice(14, 16)
   const set = (a, b, c) => a && onChange(fromLocal(`${a}T${b}:${c}`))
@@ -21,7 +22,7 @@ function DT({ value, onChange }) {
     <div className="tp">
       <select value={h} onChange={e => set(d, e.target.value, m)}>{HH.map(x => <option key={x}>{x}</option>)}</select><b>:</b>
       <select value={m} onChange={e => set(d, h, e.target.value)}>{[...new Set([...MM, m])].sort().map(x => <option key={x}>{x}</option>)}</select>
-      <small>WITA</small>
+      <small>{tzLabel()}</small>
     </div>
   </div>
 }
@@ -52,7 +53,7 @@ function Login({ onBack }) {
   </div>
 }
 
-function EditForm({ m, tm, onSave, onCancel, onDelete }) {
+function EditForm({ m, tm, courts, onSave, onCancel, onDelete }) {
   const fk = Object.keys(FORMATS).find(k => FORMATS[k].best_of === m.best_of && FORMATS[k].target === (m.target || null)) || 'bo3'
   const [f, setF] = useState({ team1: m.team1 || '', team2: m.team2 || '', round: m.round, court: m.court, start_at: m.start_at, duration: m.duration || 60, fmt: fk, golden: m.golden })
   const set = k => e => setF({ ...f, [k]: e.target.value })
@@ -61,7 +62,7 @@ function EditForm({ m, tm, onSave, onCancel, onDelete }) {
     <div className="fm">
       {['team1', 'team2'].map(k => <select key={k} value={f[k]} onChange={set(k)}><option value="">{m['slot' + k.slice(-1)] || 'TBD'}</option>{tm.map(t => <option key={t.id} value={t.id}>{tn(t)}</option>)}</select>)}
       <select value={f.round} onChange={set('round')}>{ROUNDS.map(r => <option key={r}>{r}</option>)}</select>
-      <input list="courts" value={f.court} onChange={set('court')} placeholder="Court" />
+      <CourtSelect value={f.court} courts={courts} onChange={v => setF({ ...f, court: v })} />
       <select value={f.fmt} onChange={set('fmt')}>{Object.entries(FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
       <select value={f.golden} onChange={e => setF({ ...f, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>
       <select value={f.duration} onChange={set('duration')}>{[30, 45, 60, 75, 90, 120].map(x => <option key={x} value={x}>{x} min</option>)}</select>
@@ -97,14 +98,18 @@ function ScoreEdit({ m, onSave, onCancel }) {
   </div>
 }
 
-function Matches({ tm, ms, tid, admin, run, load }) {
+function Matches({ tm, ms, tid, admin, run, load, settings }) {
   const def = () => { const d = new Date(); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return d.toISOString() }
-  const [mf, setMf] = useState({ team1: '', team2: '', court: 'Court 1', round: 'Group Stage', fmt: 'bo3', golden: true, start_at: def(), duration: 60 })
-  const [dl, setDl] = useState(15), [gf, setGf] = useState('bo3'), [editing, setEditing] = useState(null), [scoring, setScoring] = useState(null)
-  const courts = [...new Set(['Court 1', 'Court 2', 'Court 3', 'Court 4', ...ms.map(m => m.court)])]
+  const courts = activeCourts(settings)
+  const [mf, setMf] = useState({ team1: '', team2: '', court: courts[0] || 'Court 1', round: 'Group Stage', fmt: settings.fmt, golden: settings.golden, start_at: def(), duration: settings.duration })
+  const [dl, setDl] = useState(15), [gf, setGf] = useState(settings.fmt), [editing, setEditing] = useState(null), [scoring, setScoring] = useState(null), [wob, setWob] = useState(null), [noting, setNoting] = useState(null)
+  useEffect(() => { setMf(f => ({ ...f, fmt: settings.fmt, golden: settings.golden, duration: settings.duration })); setGf(settings.fmt) }, [settings.fmt, settings.golden, settings.duration])
   const hasKO = ms.some(m => m.round !== 'Group Stage')
-  const upd = (m, v) => run(supabase.from('matches').update(v).eq('id', m.id))
-  const warn = c => ms.filter(o => o.id !== c.id && o.status !== 'finished' && clash(o, c) && (o.court === c.court || [o.team1, o.team2].some(x => x && [c.team1, c.team2].includes(x))))
+  const upd = (m, v, act, detail) => run(supabase.from('matches').update(v).eq('id', m.id), act, detail)
+  const lockOn = settings.autoLock ? { locked: true } : {}
+  const diff = (m, v) => [v.court && v.court !== m.court && `court ${m.court} → ${v.court}`, v.start_at && v.start_at !== m.start_at && `time ${fmtTime(m.start_at)} → ${fmtTime(v.start_at)}`,
+    v.round && v.round !== m.round && `round ${m.round} → ${v.round}`, (('team1' in v && v.team1 !== m.team1) || ('team2' in v && v.team2 !== m.team2)) && 'teams changed'].filter(Boolean).join(', ')
+  const warn = (c, ex = [c.id]) => ms.filter(o => !ex.includes(o.id) && o.status !== 'finished' && clash(o, c) && (o.court === c.court || [o.team1, o.team2].some(x => x && [c.team1, c.team2].includes(x))))
   const ask = c => { const w = warn(c); return !w.length || confirm(`Clash: ${w.length} match(es) overlap on the same court or with the same team. Continue anyway?`) }
 
   const add = e => {
@@ -112,13 +117,42 @@ function Matches({ tm, ms, tid, admin, run, load }) {
     if (mf.team1 === mf.team2) return alert('Pick two different teams')
     const F = FORMATS[mf.fmt]
     const row = { tournament_id: tid, team1: mf.team1, team2: mf.team2, court: mf.court, round: mf.round, start_at: mf.start_at, duration: +mf.duration, golden: mf.golden, best_of: F.best_of, target: F.target }
-    if (ask(row)) run(supabase.from('matches').insert(row))
+    if (ask(row)) run(supabase.from('matches').insert(row), 'Scheduled match', `${tn(tm.find(x => x.id === mf.team1))} vs ${tn(tm.find(x => x.id === mf.team2))} · ${row.court} · ${fmtTime(row.start_at)}`)
   }
-  const edit = (m, v) => { if (ask({ ...m, ...v })) upd(m, v); else load() }
+  const edit = (m, v, act = 'Edited match') => { if (ask({ ...m, ...v })) upd(m, v, act, `${mname(m)}: ${diff(m, v)}`); else load() }
+  const swap = async (a, b) => {
+    const na = { start_at: b.start_at, court: b.court }, nb = { start_at: a.start_at, court: a.court }, w = [...warn({ ...a, ...na }, [a.id, b.id]), ...warn({ ...b, ...nb }, [a.id, b.id])]
+    if (w.length && !confirm(`Clash: ${w.length} match(es) would overlap on the same court or with the same team. Continue anyway?`)) return
+    const rs = await Promise.all([supabase.from('matches').update(na).eq('id', a.id), supabase.from('matches').update(nb).eq('id', b.id)]), er = rs.find(r => r.error)
+    if (er) alert(er.error.message); else log('Swapped match times', `${mname(a)} ⇄ ${mname(b)}`)
+    load()
+  }
+  const dup = async m => {
+    const row = { tournament_id: m.tournament_id, court: m.court, round: m.round, start_at: new Date(+new Date(m.start_at) + (m.duration || 60) * 6e4).toISOString(), duration: m.duration || 60, golden: m.golden, best_of: m.best_of, target: m.target }
+    const { data, error } = await supabase.from('matches').insert(row).select().single()
+    if (error) return alert(error.message)
+    log('Duplicated match', `${mname(m)} (same rules, next time slot, teams left blank)`); await load(); pickMatch(data)
+  }
+  const lock = (m, on) => upd(m, { locked: on }, on ? 'Locked match' : 'Unlocked match', mname(m))
+  const lockAll = async () => {
+    const list = ms.filter(m => m.status === 'finished' && !m.locked)
+    if (!list.length || !confirm(`Lock ${list.length} finished match(es)? Their results can no longer change until an admin unlocks them.`)) return
+    const rs = await Promise.all(list.map(m => supabase.from('matches').update({ locked: true }).eq('id', m.id))), er = rs.find(r => r.error)
+    if (er) alert(er.error.message); else log('Locked finished matches', `${list.length} match(es)`)
+    load()
+  }
+  const woSets = (m, w) => { const n = m.target || 6, one = [w ? 0 : n, w ? n : 0]; return m.best_of === 1 || m.target ? [one] : [one, [...one]] }
+  const walkover = (m, w) => {
+    if (!confirm(`Record a walkover? ${tn(w ? m.t2 : m.t1)} wins.`)) return
+    upd(m, { status: 'finished', winner: w ? m.team2 : m.team1, wo: true, sets: woSets(m, w), g: [0, 0], p: [0, 0], history: [...m.history.slice(-30), { sets: m.sets, g: m.g, p: m.p }], ...lockOn }, 'Walkover', `${mname(m)}: ${tn(w ? m.t2 : m.t1)} wins`)
+    setWob(null)
+  }
+  const saveNotes = (m, v) => { upd(m, v, 'Updated referee/notes', mname(m)); setNoting(null) }
   const point = (m, t) => {
     if (m.status !== 'live') return
-    const cur = { sets: m.sets, g: m.g, p: m.p }, n = addPoint(cur, t, m.golden, m.best_of, m.target)
-    upd(m, { sets: n.sets, g: n.g, p: n.p, history: [...m.history.slice(-30), cur], status: n.winner === null ? 'live' : 'finished', winner: n.winner === null ? null : (n.winner ? m.team2 : m.team1) })
+    const cur = { sets: m.sets, g: m.g, p: m.p }, n = addPoint(cur, t, m.golden, m.best_of, m.target), fin = n.winner !== null
+    upd(m, { sets: n.sets, g: n.g, p: n.p, history: [...m.history.slice(-30), cur], status: fin ? 'finished' : 'live', winner: fin ? (n.winner ? m.team2 : m.team1) : null, ...(fin ? lockOn : {}) },
+      fin ? 'Match finished' : undefined, fin ? `${mname(m)}: ${scoreText({ ...m, sets: n.sets, g: [0, 0], status: 'finished' })}` : undefined)
   }
   const saveScore = (m, v) => {
     const w = settle(v.sets, m.best_of), done = w !== null
@@ -127,15 +161,17 @@ function Matches({ tm, ms, tid, admin, run, load }) {
       : 'Save the corrected score? The match will continue as live.'
     if (!confirm(msg)) return
     const cur = { sets: m.sets, g: m.g, p: m.p }
-    upd(m, { sets: v.sets, g: done ? [0, 0] : v.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: done ? 'finished' : 'live', winner: done ? (w ? m.team2 : m.team1) : null })
+    const nx = { ...m, sets: v.sets, g: done ? [0, 0] : v.g, status: done ? 'finished' : 'live', wo: false }
+    upd(m, { sets: v.sets, g: nx.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}) },
+      'Corrected score', `${mname(m)}: ${scoreText(m) || '0-0'} → ${scoreText(nx) || '0-0'}`)
     setScoring(null)
   }
-  const undo = m => { const h = [...m.history], prev = h.pop(); if (prev) upd(m, { ...prev, history: h, status: 'live', winner: null }) }
+  const undo = m => { const h = [...m.history], prev = h.pop(); if (prev) upd(m, { ...prev, history: h, status: 'live', winner: null, wo: false }, 'Undo', mname(m)) }
   const delay = async () => {
     const list = ms.filter(m => m.status === 'scheduled')
     if (!list.length || !confirm(`Move ${list.length} upcoming match(es) ${dl} minutes later?`)) return
     await Promise.all(list.map(m => supabase.from('matches').update({ start_at: new Date(+new Date(m.start_at) + dl * 6e4).toISOString() }).eq('id', m.id)))
-    load()
+    log('Delayed matches', `${list.length} match(es) +${dl} min`); load()
   }
   const save = (m, f) => {
     const F = FORMATS[f.fmt], v = { team1: f.team1 || null, team2: f.team2 || null, round: f.round, court: f.court, start_at: f.start_at, duration: +f.duration, golden: f.golden, best_of: F.best_of, target: F.target }
@@ -143,22 +179,22 @@ function Matches({ tm, ms, tid, admin, run, load }) {
     const changed = v.team1 !== m.team1 || v.team2 !== m.team2 || v.best_of !== m.best_of || (v.target || null) !== (m.target || null) || v.golden !== m.golden
     if (m.status !== 'scheduled' && changed) {
       if (!confirm('Changing teams or scoring rules resets the score of this match. Continue?')) return
-      Object.assign(v, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null })
+      Object.assign(v, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false })
     }
     if (!ask({ ...m, ...v })) return
-    upd(m, v); setEditing(null)
+    upd(m, v, 'Edited match', `${mname(m)}: ${diff(m, v) || 'rules'}${v.status === 'scheduled' && m.status !== 'scheduled' ? ' (score reset)' : ''}`); setEditing(null)
   }
-  const del = m => confirm(`Delete match ${tn(m.t1) || m.slot1 || 'TBD'} vs ${tn(m.t2) || m.slot2 || 'TBD'}? This cannot be undone.`) && run(supabase.from('matches').delete().eq('id', m.id)).then(() => setEditing(null))
+  const del = m => confirm(`Delete match ${tn(m.t1) || m.slot1 || 'TBD'} vs ${tn(m.t2) || m.slot2 || 'TBD'}? This cannot be undone.`) && run(supabase.from('matches').delete().eq('id', m.id), 'Deleted match', mname(m)).then(() => setEditing(null))
   const pickMatch = m => { setEditing(m.id); setTimeout(() => document.getElementById('m-' + m.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50) }
   const genKO = () => {
-    const gs = [...new Set(tm.map(t => t.grp))].sort(), F = FORMATS[gf]
+    const gs = [...new Set(tm.map(t => t.grp))].sort(), F = FORMATS[gf], c1 = courts[0] || 'Court 1', c2 = courts[1] || c1
     const last = Math.max(Date.now(), ...ms.map(m => +new Date(m.start_at))) + 90 * 6e4
     const mk = (code, round, s1, s2, i, court) => ({ tournament_id: tid, code, round, slot1: s1, slot2: s2, court, start_at: new Date(last + i * 90 * 6e4).toISOString(), best_of: F.best_of, target: F.target })
     let rows
-    if (gs.length === 2) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `2nd Group ${gs[1]}`, 0, 'Court 1'), mk('SF2', 'Semifinal', `1st Group ${gs[1]}`, `2nd Group ${gs[0]}`, 0, 'Court 2'), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, 'Court 1'), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, 'Court 2')]
-    else if (gs.length === 1) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `4th Group ${gs[0]}`, 0, 'Court 1'), mk('SF2', 'Semifinal', `2nd Group ${gs[0]}`, `3rd Group ${gs[0]}`, 0, 'Court 2'), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, 'Court 1'), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, 'Court 2')]
+    if (gs.length === 2) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `2nd Group ${gs[1]}`, 0, c1), mk('SF2', 'Semifinal', `1st Group ${gs[1]}`, `2nd Group ${gs[0]}`, 0, c2), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, c1), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, c2)]
+    else if (gs.length === 1) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `4th Group ${gs[0]}`, 0, c1), mk('SF2', 'Semifinal', `2nd Group ${gs[0]}`, `3rd Group ${gs[0]}`, 0, c2), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, c1), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, c2)]
     else return alert('Auto-generate supports 1 or 2 groups. Schedule knockout matches manually instead.')
-    if (confirm('Create semifinals, third place and final? Teams fill in automatically when the group stage is finished.')) run(supabase.from('matches').insert(rows))
+    if (confirm('Create semifinals, third place and final? Teams fill in automatically when the group stage is finished.')) run(supabase.from('matches').insert(rows), 'Created knockout stage', `${rows.length} matches`)
   }
 
   return <>
@@ -167,8 +203,7 @@ function Matches({ tm, ms, tid, admin, run, load }) {
         {['team1', 'team2'].map(k => <select key={k} required value={mf[k]} onChange={e => setMf({ ...mf, [k]: e.target.value })}>
           <option value="">{k === 'team1' ? 'Team A' : 'Team B'}</option>{tm.map(t => <option key={t.id} value={t.id}>{tn(t)}</option>)}</select>)}
         <select value={mf.round} onChange={e => setMf({ ...mf, round: e.target.value })}>{ROUNDS.map(r => <option key={r}>{r}</option>)}</select>
-        <input list="courts" value={mf.court} onChange={e => setMf({ ...mf, court: e.target.value })} placeholder="Court" />
-        <datalist id="courts">{courts.map(c => <option key={c} value={c} />)}</datalist>
+        <CourtSelect value={mf.court} courts={courts} onChange={v => setMf({ ...mf, court: v })} />
         <select value={mf.fmt} onChange={e => setMf({ ...mf, fmt: e.target.value })}>{Object.entries(FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <select value={mf.golden} onChange={e => setMf({ ...mf, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>
         <select value={mf.duration} onChange={e => setMf({ ...mf, duration: e.target.value })}>{[30, 45, 60, 75, 90, 120].map(x => <option key={x} value={x}>{x} min</option>)}</select>
@@ -178,23 +213,34 @@ function Matches({ tm, ms, tid, admin, run, load }) {
     {admin && <div className="panel"><h3>Tools</h3><div className="fm">
       <select value={dl} onChange={e => setDl(+e.target.value)}>{[15, 30, 45, 60].map(x => <option key={x} value={x}>Delay {x} min</option>)}</select>
       <button className="btn o" onClick={delay}>Delay all upcoming</button>
+      <button className="btn o" onClick={lockAll}>Lock all finished</button>
       {!hasKO && tm.length > 0 && <><select value={gf} onChange={e => setGf(e.target.value)}>{Object.entries(FORMATS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
         <button className="btn" onClick={genKO}>Generate knockout</button></>}
     </div></div>}
+    {admin && <Reorder ms={ms} courts={courts} edit={edit} swap={swap} />}
     {admin && hasKO && <div className="panel"><h3>Bracket</h3><BracketView matches={ms} onPick={pickMatch} title="Bracket" /></div>}
     <h3 className="sec">Match control <span className="chip">{ms.length}</span></h3>
-    <div className="grid">{ms.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m}>
-      {editing === m.id ? <EditForm m={m} tm={tm} onSave={f => save(m, f)} onCancel={() => setEditing(null)} onDelete={() => del(m)} /> :
+    <div className="grid">{ms.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m} plain>
+      {editing === m.id ? <EditForm m={m} tm={tm} courts={courts} onSave={f => save(m, f)} onCancel={() => setEditing(null)} onDelete={() => del(m)} /> :
         scoring === m.id ? <ScoreEdit m={m} onSave={v => saveScore(m, v)} onCancel={() => setScoring(null)} /> :
+        wob === m.id ? <WalkoverBox m={m} onSave={w => walkover(m, w)} onCancel={() => setWob(null)} /> :
+        noting === m.id ? <NoteBox m={m} onSave={v => saveNotes(m, v)} onCancel={() => setNoting(null)} /> :
+        m.locked ? <div className="ctrl"><span className="chip lock">🔒 Locked</span>
+          {admin && <button className="btn o sm" onClick={() => lock(m, false)}>Unlock</button>}
+          {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}</div> :
         <div className="ctrl">
-          {m.status === 'scheduled' && <button className="btn sm" onClick={() => upd(m, { status: 'live' })} disabled={!m.team1 || !m.team2}>Start match</button>}
+          {m.status === 'scheduled' && <button className="btn sm" onClick={() => upd(m, { status: 'live' }, 'Started match', mname(m))} disabled={!m.team1 || !m.team2}>Start match</button>}
           {m.status === 'live' && <>
             <button className="btn sm" onClick={() => point(m, 0)}>+ {tn(m.t1)}</button>
             <button className="btn sm" onClick={() => point(m, 1)}>+ {tn(m.t2)}</button>
             <button className="btn o sm" onClick={() => undo(m)}>Undo</button></>}
           {m.status !== 'scheduled' && <button className="btn o sm" onClick={() => setScoring(m.id)}>Edit score</button>}
+          {m.status !== 'finished' && <button className="btn o sm" disabled={!m.team1 || !m.team2} onClick={() => setWob(m.id)}>Walkover</button>}
+          <button className="btn o sm" onClick={() => setNoting(m.id)}>Notes</button>
+          {admin && m.status === 'finished' && <button className="btn o sm" onClick={() => lock(m, true)}>Lock result</button>}
           {admin && <button className="btn o sm" onClick={() => setEditing(m.id)}>Edit</button>}
-          {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null })}>Reset</button>}
+          {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}
+          {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false }, 'Reset match', mname(m))}>Reset</button>}
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Delete</button>}
         </div>}
     </Card></div>)}</div>
@@ -217,7 +263,7 @@ function ImportTeams({ tm, tid, run }) {
   }
   const go = async () => {
     setBusy(true)
-    const ok = await run(supabase.from('teams').insert(res.fresh.map(r => ({ ...r, tournament_id: tid }))))
+    const ok = await run(supabase.from('teams').insert(res.fresh.map(r => ({ ...r, tournament_id: tid }))), 'Imported teams', `${res.fresh.length} team(s)`)
     setBusy(false)
     if (ok) { setTxt(''); setOpen(false) }
   }
@@ -249,10 +295,10 @@ function Teams({ tm, tours, tid, run }) {
   const startEdit = t => { setEid(t.id); setEf({ name: t.name || '', player1: t.player1, player2: t.player2, grp: t.grp || 'A' }) }
   const saveEdit = t => {
     if (!ef.player1.trim() || !ef.player2.trim()) return alert('Both player names are required')
-    run(supabase.from('teams').update({ name: ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`, player1: ef.player1.trim(), player2: ef.player2.trim(), grp: ef.grp }).eq('id', t.id)).then(() => setEid(null))
+    run(supabase.from('teams').update({ name: ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`, player1: ef.player1.trim(), player2: ef.player2.trim(), grp: ef.grp }).eq('id', t.id), 'Edited team', ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`).then(() => setEid(null))
   }
   return <div className="panel"><h3>Teams & players</h3>
-    <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('teams').insert({ ...tf, name: tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`, tournament_id: tid })); setTf(blank) }}>
+    <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('teams').insert({ ...tf, name: tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`, tournament_id: tid }), 'Added team', tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`); setTf(blank) }}>
       <input required placeholder="Player 1" value={tf.player1} onChange={set('player1')} />
       <input required placeholder="Player 2" value={tf.player2} onChange={set('player2')} />
       <input placeholder="Team name (optional)" value={tf.name} onChange={set('name')} />
@@ -274,7 +320,7 @@ function Teams({ tm, tours, tid, run }) {
         <div className="im"><b>{tn(t)}</b><small>{t.player1} / {t.player2}</small></div>
         <span className="chip">Group {t.grp}</span>
         <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
-          <button className="btn o sm danger" onClick={() => confirm('Delete team and its matches?') && run(supabase.from('teams').delete().eq('id', t.id))}>Delete</button></div>
+          <button className="btn o sm danger" onClick={() => confirm('Delete team and its matches?') && run(supabase.from('teams').delete().eq('id', t.id), 'Deleted team', tn(t))}>Delete</button></div>
       </div>)}</div>
     {!tm.length && <p className="muted">No teams yet.</p>}
   </div>
@@ -288,10 +334,10 @@ function Tournaments({ tours, run }) {
   const startEdit = t => { setEid(t.id); setEf({ name: t.name, gender: t.gender, level: t.level, start_date: t.start_date || '' }) }
   const saveEdit = t => {
     if (!ef.name.trim()) return alert('Tournament name is required')
-    run(supabase.from('tournaments').update({ name: ef.name.trim(), gender: ef.gender, level: ef.level, start_date: ef.start_date || null }).eq('id', t.id)).then(() => setEid(null))
+    run(supabase.from('tournaments').update({ name: ef.name.trim(), gender: ef.gender, level: ef.level, start_date: ef.start_date || null }).eq('id', t.id), 'Edited tournament', ef.name.trim()).then(() => setEid(null))
   }
   return <div className="panel"><h3>Tournaments</h3>
-    <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('tournaments').insert({ ...f, start_date: f.start_date || null })); setF(blank) }}>
+    <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('tournaments').insert({ ...f, start_date: f.start_date || null }), 'Created tournament', f.name); setF(blank) }}>
       <input required className="wide" placeholder="Tournament name, e.g. BEGINNER MEN GROUP STAGE" value={f.name} onChange={set('name')} />
       <select value={f.gender} onChange={set('gender')}>{GENDERS.map(x => <option key={x}>{x}</option>)}</select>
       <select value={f.level} onChange={set('level')}>{LEVELS.map(x => <option key={x}>{x}</option>)}</select>
@@ -311,7 +357,7 @@ function Tournaments({ tours, run }) {
       : <div className="item" key={t.id}>
         <div className="im"><b>{t.name}</b><small>{t.gender} · {t.level}{t.start_date ? ' · ' + t.start_date : ''}</small></div>
         <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
-          <button className="btn o sm danger" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id))}>Delete</button></div>
+          <button className="btn o sm danger" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id), 'Deleted tournament', t.name)}>Delete</button></div>
       </div>)}</div>
   </div>
 }
@@ -321,7 +367,7 @@ function Announce({ ann, run }) {
   const add = e => {
     e.preventDefault()
     const message = f.message.trim(); if (!message) return
-    run(supabase.from('announcements').insert({ message, level: f.level })); setF({ message: '', level: 'info' })
+    run(supabase.from('announcements').insert({ message, level: f.level }), 'Posted announcement', message); setF({ message: '', level: 'info' })
   }
   return <div className="panel"><h3>Announcements</h3>
     <p className="muted">Shown as a banner at the top of every page and on the TV screen while it is visible. Viewers get a notification if they turned on "Notify me".</p>
@@ -333,14 +379,14 @@ function Announce({ ann, run }) {
     <div className="items">{ann.map(a => <div className="item" key={a.id}>
       <div className="im"><b>{a.message}</b><small>{a.level === 'warning' ? 'Important' : 'Notice'} · {a.active ? 'Visible' : 'Hidden'} · {fmtDate(a.created_at)} {fmtTime(a.created_at)}</small></div>
       <div className="ia">
-        <button className="btn o sm" onClick={() => run(supabase.from('announcements').update({ active: !a.active }).eq('id', a.id))}>{a.active ? 'Hide' : 'Show'}</button>
-        <button className="btn o sm danger" onClick={() => confirm('Delete this announcement?') && run(supabase.from('announcements').delete().eq('id', a.id))}>Delete</button>
+        <button className="btn o sm" onClick={() => run(supabase.from('announcements').update({ active: !a.active }).eq('id', a.id), a.active ? 'Hid announcement' : 'Showed announcement', a.message)}>{a.active ? 'Hide' : 'Show'}</button>
+        <button className="btn o sm danger" onClick={() => confirm('Delete this announcement?') && run(supabase.from('announcements').delete().eq('id', a.id), 'Deleted announcement', a.message)}>Delete</button>
       </div></div>)}</div>
     {!ann.length && <p className="muted">No announcements yet.</p>}
   </div>
 }
 
-function Settings({ me, admin, run, load }) {
+function Settings({ me, admin, run, load, settings, save }) {
   const [np, setNp] = useState(''), [cp, setCp] = useState(''), [staff, setStaff] = useState([]), [nf, setNf] = useState({ username: '', password: '', role: 'scorer' })
   const loadStaff = () => admin && supabase.from('staff').select('*').order('created_at').then(r => setStaff(r.data || []))
   useEffect(() => { loadStaff() }, [admin])
@@ -360,26 +406,14 @@ function Settings({ me, admin, run, load }) {
     if (!data.user) return alert('Could not create the account')
     const r = await supabase.from('staff').insert({ user_id: data.user.id, username: nf.username.trim().toLowerCase(), role: nf.role })
     if (r.error) return alert(r.error.message)
-    setNf({ username: '', password: '', role: 'scorer' }); loadStaff()
+    log('Added account', `${nf.username.trim().toLowerCase()} (${nf.role})`); setNf({ username: '', password: '', role: 'scorer' }); loadStaff()
   }
-  const backup = async () => {
-    const [a, b, c] = await Promise.all(['tournaments', 'teams', 'matches'].map(t => supabase.from(t).select('*')))
-    const blob = new Blob([JSON.stringify({ app: 'courtline', exported_at: new Date().toISOString(), tournaments: a.data, teams: b.data, matches: c.data }, null, 2)], { type: 'application/json' })
-    const el = document.createElement('a'); el.href = URL.createObjectURL(blob)
-    el.download = `courtline-backup-${new Date().toISOString().slice(0, 10)}.json`; el.click()
-  }
-  const restore = async e => {
-    const file = e.target.files[0]; e.target.value = ''
-    if (!file || !confirm('Restore this backup? Records with the same ID will be overwritten.')) return
-    try {
-      const d = JSON.parse(await file.text())
-      if (d.app !== 'courtline') throw new Error('This is not a Courtline backup file')
-      for (const [t, rows] of [['tournaments', d.tournaments || []], ['teams', d.teams || []], ['matches', d.matches || []]]) {
-        if (!rows.length) continue
-        const r = await supabase.from(t).upsert(rows); if (r.error) throw r.error
-      }
-      alert('Backup restored'); load()
-    } catch (x) { alert(x.message) }
+  const resetPw = async u => {
+    const pw = prompt(`New password for ${u.username} (at least 6 characters):`)
+    if (!pw) return
+    const { error } = await supabase.rpc('admin_reset_password', { target: u.user_id, new_password: pw })
+    if (error) return alert(error.message + (/function|schema cache/i.test(error.message) ? '\nRun the latest supabase.sql first.' : ''))
+    log('Reset password', u.username); alert(`Password reset for ${u.username}. Give them the new password.`)
   }
   return <>
     <div className="panel"><h3>Change password</h3><p className="muted">Signed in as <b>{me.username}</b>. Pick a strong password you don't use elsewhere.</p>
@@ -388,22 +422,26 @@ function Settings({ me, admin, run, load }) {
         <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={cp} onChange={e => setCp(e.target.value)} />
         <button className="btn">Update password</button></form></div>
     {admin && <>
-      <div className="panel"><h3>Accounts</h3><p className="muted">Admin: full access. Scorer: can start matches and enter scores only.</p>
+      <SiteSettings settings={settings} save={save} />
+      <TimeSettings settings={settings} save={save} />
+      <RuleSettings settings={settings} save={save} />
+      <CourtsPanel settings={settings} save={save} />
+      <div className="panel"><h3>Accounts</h3><p className="muted">Admin: full access. Scorer: can start matches, enter and correct scores, record walkovers and notes. You can change a role at any time, and reset a password if someone forgets it (it is a new password you hand over; the old one stops working).</p>
         <form className="fm" onSubmit={addUser}>
           <input required placeholder="Username" autoCapitalize="none" value={nf.username} onChange={e => setNf({ ...nf, username: e.target.value })} />
           <input required type="password" placeholder="Password (min 6)" value={nf.password} onChange={e => setNf({ ...nf, password: e.target.value })} />
           <select value={nf.role} onChange={e => setNf({ ...nf, role: e.target.value })}><option value="scorer">Scorer</option><option value="admin">Admin</option></select>
           <button className="btn">Add account</button></form>
-        <div className="scroll"><table className="tb left"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b></td><td>{s.role}</td>
-          <td>{s.user_id !== me.user_id && <button className="btn o sm" onClick={() => confirm(`Remove access for ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id)).then(loadStaff)}>Remove</button>}</td></tr>)}</tbody></table></div></div>
-      <div className="panel"><h3>Data backup</h3><p className="muted">Download all tournaments, teams and matches as a file, or restore from a previous backup.</p>
-        <div className="fm"><button className="btn" onClick={backup}>Download backup</button>
-          <label className="btn o">Restore from file<input type="file" accept="application/json" hidden onChange={restore} /></label></div></div>
+        <div className="scroll"><table className="tb left"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b>{s.user_id === me.user_id && <small> (you)</small>}</td>
+          <td>{s.user_id === me.user_id ? s.role : <select value={s.role} onChange={e => run(supabase.from('staff').update({ role: e.target.value }).eq('user_id', s.user_id), 'Changed role', `${s.username} → ${e.target.value}`).then(loadStaff)}><option value="scorer">scorer</option><option value="admin">admin</option></select>}</td>
+          <td className="ra">{s.user_id !== me.user_id && <><button className="btn o sm" onClick={() => resetPw(s)}>Reset password</button>{' '}
+            <button className="btn o sm danger" onClick={() => confirm(`Remove access for ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id), 'Removed account', s.username).then(loadStaff)}>Remove</button></>}</td></tr>)}</tbody></table></div></div>
+      <BackupPanel load={load} />
     </>}
   </>
 }
 
-export default function Admin({ matches, teams, tours, ann = [], tid, load, onBack }) {
+export default function Admin({ matches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [tab, setTab] = useState('matches'), [at, setAt] = useState('')
   useEffect(() => {
     supabase.auth.getSession().then(r => setSession(r.data.session))
@@ -414,6 +452,14 @@ export default function Admin({ matches, teams, tours, ann = [], tid, load, onBa
     if (!session) return setMe(null)
     supabase.from('staff').select('*').eq('user_id', session.user.id).maybeSingle().then(r => setMe(r.data || false))
   }, [session])
+  useEffect(() => { // backup fallback: if the scheduled backup could not run, an admin opening the console takes one
+    if (!me || me.role !== 'admin') return
+    supabase.from('backups').select('created_at').order('created_at', { ascending: false }).limit(1).then(r => {
+      if (r.error) return
+      const last = r.data && r.data[0] && r.data[0].created_at
+      if (!last || Date.now() - +new Date(last) > 6 * 36e5) supabase.rpc('make_backup', { k: 'auto' }).then(() => {}, () => {})
+    })
+  }, [me && me.user_id])
   useEffect(() => { if (!tours.some(t => t.id === at)) setAt(tid !== 'all' && tours.some(t => t.id === tid) ? tid : tours[0]?.id || '') }, [tours, tid])
   // Fill knockout slots ("1st Group A", "Winner SF1") with real teams once they are decided
   useEffect(() => {
@@ -433,19 +479,26 @@ export default function Admin({ matches, teams, tours, ann = [], tid, load, onBa
   if (me === null) return <p className="muted">Loading…</p>
   if (me === false) return <div className="empty">This account has no staff access.<br /><button className="btn" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
   const admin = me.role === 'admin'
-  const run = async p => { const { error } = await p; if (error) alert(error.message); load(); return !error }
+  const run = async (p, act, detail) => { const { error } = await p; if (error) alert(error.message); else if (act) log(act, detail); load(); return !error }
+  const save = async (patch, act, detail) => {
+    const { error } = await supabase.from('settings').upsert({ id: 'main', data: { ...settings, ...patch }, updated_at: new Date().toISOString() })
+    if (error) { alert(error.message + (/relation|schema cache/i.test(error.message) ? '\nRun the latest supabase.sql in Supabase first.' : '')); return false }
+    log(act || 'Updated settings', detail); load(); return true
+  }
   const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at)
-  const tabs = [['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements']] : []), ['settings', 'Settings']]
+  const tabs = [['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements'], ['export', 'Export'], ['history', 'History']] : []), ['settings', 'Settings']]
   const needT = (tab === 'matches' || tab === 'teams') && !at
   return <div className="adm">
     <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
     <div className="subnav">{tabs.map(([k, v]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{v}</button>)}</div>
     {(tab === 'matches' || tab === 'teams') && tours.length > 0 && <div className="tools"><select value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {t.gender} {t.level}</option>)}</select></div>}
     {needT && <div className="empty">Create a tournament first{admin ? ' in the Tournaments tab.' : '.'}</div>}
-    {tab === 'matches' && !needT && <Matches tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} />}
+    {tab === 'matches' && !needT && <Matches tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} />}
     {tab === 'teams' && admin && !needT && <Teams tm={tm} tours={tours} tid={at} run={run} />}
     {tab === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}
     {tab === 'announcements' && admin && <Announce ann={ann} run={run} />}
-    {tab === 'settings' && <Settings me={me} admin={admin} run={run} load={load} />}
+    {tab === 'export' && admin && <ExportPanel tours={tours} teams={teams} matches={matches} at={at} onPrint={onPrint} />}
+    {tab === 'history' && admin && <HistoryPanel />}
+    {tab === 'settings' && <Settings me={me} admin={admin} run={run} load={load} settings={settings} save={save} />}
   </div>
 }

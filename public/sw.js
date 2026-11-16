@@ -1,7 +1,7 @@
 // Courtline service worker: makes the app installable and lets the shell open even with a weak connection.
 // Strategy is network-first, so people always get the newest version when online (no stale deploys).
 // Live data (Supabase) is cross-origin and is never touched here.
-const CACHE = 'courtline-v5'
+const CACHE = 'courtline-v6'
 self.addEventListener('install', e => {
   self.skipWaiting()
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['/', '/manifest.webmanifest', '/icons/icon-192.png'])).catch(() => {}))

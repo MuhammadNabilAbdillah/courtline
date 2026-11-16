@@ -1,15 +1,27 @@
-# Courtline — Padel Live Score (v5)
+# Courtline — Padel Live Score (v6)
 
-## New in v5
-- **Edit score** (Admin > Matches, live or finished match): correct sets, current game and points by hand. Undo still works afterwards.
-- **Announcements** (Admin > Announcements, admin only): banner on every page and the TV screen, e.g. "Schedule delayed 30 minutes".
-- **Import teams** (Admin > Teams): upload a CSV or paste cells from Excel / Google Sheets.
-- **Install as an app (PWA)**: "Install app" button, own icon, opens full screen from the home screen.
+## Features
+**Viewers**
+- Live, Schedule, Bracket, Results, TV mode (with a QR code to open the scores on a phone)
+- Favourite teams (star): your matches come first on Live, "My teams" filter, notifications for your teams
+- Team profile page (record, group rank, every match) and a direct link for every match (WhatsApp share)
+- Announcement banner, dark mode, Indonesian / English, install as an app (PWA), print the schedule
 
-## Updating an existing install (v4 -> v5)
-1. Supabase > SQL Editor: run the whole `supabase.sql` again (safe to re-run). It adds the `announcements` table.
+**Staff (Admin console)**
+- Edit score manually, walkover (WO), referee & notes, lock finished matches
+- Reorder schedule (swap, ±15 min, change court, clash warnings), duplicate match, delay all
+- Import teams from CSV/Excel, export Excel (.xlsx) and PDF (standings & results), print schedule
+- Change history (who changed what, when), announcements
+
+**Settings (admin)**
+- Site name, logo and main colour, time zone and 12/24-hour clock, default match rules, courts
+- Staff accounts: add, change role, reset password, remove
+- Backups: automatic every 6 hours, manual, download and restore
+
+## Updating an existing install (v5 -> v6)
+1. Supabase > SQL Editor: run the whole `supabase.sql` again (safe to re-run). It adds new match columns and the settings, history and backup tables.
 2. Copy the files from this update over your project folder (keep your own `.env`).
-3. `git add .` / `git commit -m "v5"` / `git push` — Vercel redeploys automatically and the link stays the same.
+3. `git add .` / `git commit -m "v6"` / `git push`. Vercel redeploys automatically and the link stays the same.
 
 ## First install
 1. Supabase > SQL Editor: run the whole `supabase.sql`.
@@ -18,4 +30,4 @@
 4. `npm install && npm run dev`
 5. Admin > Tournaments: create a tournament, add teams, schedule matches, then "Generate knockout" after the group stage.
 
-All times are shown in WITA (UTC+8).
+The language follows the visitor's phone (Indonesian or English) and can be switched with the EN/ID button. The admin console is in English.

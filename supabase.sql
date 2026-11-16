@@ -1,4 +1,4 @@
--- Courtline v5. Run the whole file in Supabase > SQL Editor (safe to re-run).
+-- Courtline v6. Run the whole file in Supabase > SQL Editor (safe to re-run).
 
 -- PART 1: tables (new installs) + upgrades (existing installs)
 create table if not exists tournaments (
@@ -41,6 +41,10 @@ alter table matches add column if not exists slot1 text;
 alter table matches add column if not exists slot2 text;
 alter table matches add column if not exists duration int not null default 60;
 alter table matches add column if not exists target int;
+alter table matches add column if not exists locked boolean not null default false;  -- final score locked
+alter table matches add column if not exists wo boolean not null default false;      -- walkover (opponent did not show)
+alter table matches add column if not exists referee text;
+alter table matches add column if not exists notes text;
 
 -- PART 2: security (safe to re-run)
 create table if not exists staff (
@@ -90,6 +94,101 @@ drop policy if exists "read announcements" on announcements; drop policy if exis
 create policy "read announcements" on announcements for select using (true);
 create policy "admin announcements" on announcements for all to authenticated using (is_admin()) with check (is_admin());
 do $$ begin alter publication supabase_realtime add table announcements; exception when others then null; end $$;
+
+-- ===== v6 additions =====
+-- Site settings (one row, id = 'main'): event name, logo, colour, time zone, default rules, courts
+create table if not exists settings (
+  id text primary key,
+  data jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
+alter table settings enable row level security;
+drop policy if exists "read settings" on settings; drop policy if exists "admin settings" on settings;
+create policy "read settings" on settings for select using (true);
+create policy "admin settings" on settings for all to authenticated using (is_admin()) with check (is_admin());
+do $$ begin alter publication supabase_realtime add table settings; exception when others then null; end $$;
+
+-- Change history: who changed what, and when (the actor is filled in by the server, so it cannot be faked)
+create table if not exists audit_log (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  actor text not null default '',
+  action text not null,
+  detail text
+);
+alter table audit_log enable row level security;
+create or replace function set_audit_actor() returns trigger language plpgsql security definer set search_path = public as $$
+begin new.actor := coalesce((select username from staff where user_id = auth.uid()), new.actor, ''); return new; end $$;
+drop trigger if exists set_audit_actor on audit_log;
+create trigger set_audit_actor before insert on audit_log for each row execute function set_audit_actor();
+drop policy if exists "staff insert audit" on audit_log; drop policy if exists "admin read audit" on audit_log;
+create policy "staff insert audit" on audit_log for insert to authenticated with check (is_staff());
+create policy "admin read audit" on audit_log for select to authenticated using (is_admin());
+
+-- Locked matches cannot be changed by anyone until an admin unlocks them
+create or replace function guard_locked_match() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if old.locked and new.locked then raise exception 'This match is locked. An admin must unlock it first.'; end if;
+  if old.locked and not new.locked and not is_admin() then raise exception 'Only an admin can unlock a match.'; end if;
+  return new;
+end $$;
+drop trigger if exists guard_locked_match on matches;
+create trigger guard_locked_match before update on matches for each row execute function guard_locked_match();
+
+-- Admins can reset a staff member's password (the app has no access to the service key, so this runs in the database)
+create or replace function admin_reset_password(target uuid, new_password text) returns void
+  language plpgsql security definer set search_path = public, extensions, auth as $$
+begin
+  if not is_admin() then raise exception 'Admins only'; end if;
+  if length(coalesce(new_password, '')) < 6 then raise exception 'Password must be at least 6 characters'; end if;
+  update auth.users set encrypted_password = crypt(new_password, gen_salt('bf')), updated_at = now() where id = target;
+  if not found then raise exception 'Account not found'; end if;
+end $$;
+revoke all on function admin_reset_password(uuid, text) from public, anon;
+grant execute on function admin_reset_password(uuid, text) to authenticated;
+
+-- Backups: the newest 60 copies are kept
+create table if not exists backups (
+  id bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  kind text not null default 'auto',
+  data jsonb not null
+);
+alter table backups enable row level security;
+drop policy if exists "admin read backups" on backups; drop policy if exists "admin delete backups" on backups;
+create policy "admin read backups" on backups for select to authenticated using (is_admin());
+create policy "admin delete backups" on backups for delete to authenticated using (is_admin());
+create or replace function make_backup_internal(k text default 'auto') returns bigint language plpgsql security definer set search_path = public as $$
+declare bid bigint;
+begin
+  insert into backups(kind, data) values (k, jsonb_build_object(
+    'app', 'courtline', 'exported_at', now(),
+    'tournaments', coalesce((select jsonb_agg(to_jsonb(x)) from tournaments x), '[]'::jsonb),
+    'teams', coalesce((select jsonb_agg(to_jsonb(x)) from teams x), '[]'::jsonb),
+    'matches', coalesce((select jsonb_agg(to_jsonb(x)) from matches x), '[]'::jsonb),
+    'announcements', coalesce((select jsonb_agg(to_jsonb(x)) from announcements x), '[]'::jsonb),
+    'settings', coalesce((select jsonb_agg(to_jsonb(x)) from settings x), '[]'::jsonb)
+  )) returning id into bid;
+  delete from backups where id not in (select id from backups order by created_at desc, id desc limit 60);
+  return bid;
+end $$;
+revoke all on function make_backup_internal(text) from public, anon, authenticated;
+create or replace function make_backup(k text default 'manual') returns bigint language plpgsql security definer set search_path = public as $$
+begin
+  if not is_admin() then raise exception 'Admins only'; end if;
+  return make_backup_internal(case when k = 'auto' then 'auto' else 'manual' end);
+end $$;
+revoke all on function make_backup(text) from public, anon;
+grant execute on function make_backup(text) to authenticated;
+
+-- Scheduled backup every 6 hours (needs the pg_cron extension; if it cannot be enabled here, turn it on in
+-- Supabase > Database > Extensions. The app also takes a backup whenever an admin opens the console and the last one is older than 6 hours.)
+do $$ begin
+  create extension if not exists pg_cron;
+  begin perform cron.unschedule('courtline-backup'); exception when others then null; end;
+  perform cron.schedule('courtline-backup', '0 */6 * * *', 'select public.make_backup_internal(''auto'')');
+exception when others then raise notice 'pg_cron is not available (%). Automatic backups still run while an admin is signed in.', sqlerrm;
+end $$;
 
 -- PART 3: first admin.
 -- 1) Supabase > Authentication > Users > Add user:

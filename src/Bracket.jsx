@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
-import { tn, rule, fmtTime } from './util'
+import { tn, rule, fmtTime, rd } from './util'
+import { t } from './i18n'
 
-const NAVY = '#032a5f', LINE = '#c9d5e8', MUTE = '#66779a', FF = "Sora, 'Segoe UI', Arial, sans-serif"
+let NAVY = '#032a5f'
+const LINE = '#c9d5e8', MUTE = '#66779a', FF = "Sora, 'Segoe UI', Arial, sans-serif"
 export const ORDER = ['Round of 16', 'Quarterfinal', 'Semifinal', 'Final']
 const score = (m, i) => m.status === 'scheduled' ? '' : [...m.sets.map(s => s[i]), ...(m.status === 'live' ? [m.g[i]] : [])].join(' ')
 const cut = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s
@@ -33,10 +35,11 @@ function download(svg, W, H, name) {
 // Bracket drawn as an SVG picture (zoomable, downloadable as PNG, tap a match to edit when onPick is given)
 export function BracketView({ matches, onPick, title = 'Bracket', virtual }) {
   const [z, setZ] = useState(() => window.innerWidth < 640 ? .7 : 1), ref = useRef()
+  NAVY = getComputedStyle(document.documentElement).getPropertyValue('--b').trim() || '#032a5f' // follows the brand colour from Settings
   const ko = matches.filter(m => m.round !== 'Group Stage' && m.round !== 'Third Place')
   const rounds = ORDER.filter(r => ko.some(m => m.round === r))
   const third = matches.find(m => m.round === 'Third Place')
-  if (!rounds.length) return <div className="empty">The knockout bracket appears here once it is created.</div>
+  if (!rounds.length) return <div className="empty">{t('The knockout bracket appears here once it is created.')}</div>
   const cols = rounds.map(r => ko.filter(m => m.round === r).sort((a, b) => (a.code || '').localeCompare(b.code || '') || new Date(a.start_at) - new Date(b.start_at)))
   const rows = Math.max(1, cols[0].length)
   const BW = 236, BH = 68, GX = 64, RH = 104, HH = 70, P = 24
@@ -65,22 +68,22 @@ export function BracketView({ matches, onPick, title = 'Bracket', virtual }) {
 
   return <div className="bwrap">
     <div className="btools">
-      <span className="muted">{virtual ? 'Projected from group standings' : onPick ? 'Tap a match to edit it' : ''}</span>
+      <span className="muted">{virtual ? t('Projected from group standings') : onPick ? t('Tap a match to edit it') : ''}</span>
       <div className="bz"><button onClick={() => setZ(Math.max(.4, +(z - .1).toFixed(1)))}>−</button><span>{Math.round(z * 100)}%</span><button onClick={() => setZ(Math.min(1.6, +(z + .1).toFixed(1)))}>+</button></div>
-      <button className="btn sm" onClick={() => download(ref.current, W, H, title.replace(/\W+/g, '-').toLowerCase() || 'bracket')}>Download image</button>
+      <button className="btn sm" onClick={() => download(ref.current, W, H, title.replace(/\W+/g, '-').toLowerCase() || 'bracket')}>{t('Download image')}</button>
     </div>
     <div className="scroll bpanel">
       <svg ref={ref} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${W} ${H}`} width={W * z} height={H * z} role="img">
         <text x={P} y="26" fontSize="16" fontWeight="800" fontFamily={FF} fill={NAVY}>{cut(title.toUpperCase(), 60)}</text>
         {cols.map((ms, c) => <g key={'h' + c}>
-          <text x={cx(c) + BW / 2} y={HH - 18} textAnchor="middle" fontSize="13" fontWeight="800" fontFamily={FF} fill={NAVY}>{rounds[c]}</text>
+          <text x={cx(c) + BW / 2} y={HH - 18} textAnchor="middle" fontSize="13" fontWeight="800" fontFamily={FF} fill={NAVY}>{rd(rounds[c])}</text>
           <text x={cx(c) + BW / 2} y={HH - 4} textAnchor="middle" fontSize="10" fontFamily={FF} fill={MUTE}>{rule(ms[0])}</text></g>)}
         {cols.map((ms, c) => c > 0 && cols[c - 1].length === ms.length * 2 && ms.map((_, i) => [2 * i, 2 * i + 1].map(j => {
           const x1 = cx(c - 1) + BW, x2 = cx(c), mx = (x1 + x2) / 2
           return <path key={c + '-' + i + '-' + j} d={`M${x1} ${cy(c - 1, j)}H${mx}V${cy(c, i)}H${x2}`} fill="none" stroke={LINE} strokeWidth="2" />
         })))}
         {cols.map((ms, c) => ms.map((m, i) => <Box key={m.id} m={m} x={cx(c)} y={cy(c, i) - BH / 2} />))}
-        {third && <g><text x={P} y={tY - 6} fontSize="13" fontWeight="800" fontFamily={FF} fill={NAVY}>Third Place</text><Box m={third} x={P} y={tY + 8} /></g>}
+        {third && <g><text x={P} y={tY - 6} fontSize="13" fontWeight="800" fontFamily={FF} fill={NAVY}>{rd('Third Place')}</text><Box m={third} x={P} y={tY + 8} /></g>}
       </svg>
     </div>
   </div>
