@@ -106,7 +106,7 @@ function TennisScoreEdit({ m, onSave, onCancel }) {
   </div>
 }
 
-function Matches({ tm, ms, tid, admin, run, load, settings }) {
+function Matches({ tm, ms, tid, admin, run, load, settings, view = 'control', focusId, onFocus, go }) {
   const def = () => { const d = new Date(); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return d.toISOString() }
   const courts = activeCourts(settings)
   const [mf, setMf] = useState({ team1: '', team2: '', court: courts[0] || 'Court 1', round: 'Group Stage', fmt: settings.fmt, golden: settings.golden, start_at: def(), duration: settings.duration })
@@ -214,10 +214,25 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
     if (confirm('Create semifinals, third place and final? Teams fill in automatically when the group stage is finished.')) run(supabase.from('matches').insert(rows), 'Created knockout stage', `${rows.length} matches`)
   }
 
-  return <>
+  const [flt, setFlt] = useState('all')
+  const shown = ms.filter(m => flt === 'all' || (flt === 'live' ? m.status === 'live' : flt === 'todo' ? m.status === 'scheduled' : m.status === 'finished'))
+  const cnt = { all: ms.length, live: ms.filter(m => m.status === 'live').length, todo: ms.filter(m => m.status === 'scheduled').length, done: ms.filter(m => m.status === 'finished').length }
+  // arriving from the Bracket page: open that match for editing
+  useEffect(() => { if (view === 'control' && focusId) { const m = ms.find(x => x.id === focusId); if (m) { pickMatch(m); onFocus && onFocus(null) } } }, [view, focusId, ms.length])
+
+  if (view === 'overview') return <>
     <Overview ms={ms} tm={tm} />
-    {admin && <FixtureGenerator tm={tm} ms={ms} tid={tid} courts={courts} settings={settings} load={load} />}
-    {admin && <div className="panel"><h3>Schedule a match</h3>
+    <div className="panel"><h3>Quick actions</h3><div className="ctrl">
+      <button className="btn" onClick={() => go('control')}>Open match control</button>
+      <button className="btn o" onClick={() => go('scorer')}>Open scorer</button>
+      {admin && <button className="btn o" onClick={() => go('announcements')}>Post an announcement</button>}
+      {admin && <button className="btn o" onClick={() => go('fixtures')}>Create matches</button>}
+    </div></div>
+  </>
+
+  if (view === 'fixtures') return <>
+    <FixtureGenerator tm={tm} ms={ms} tid={tid} courts={courts} settings={settings} load={load} />
+    <div className="panel"><h3>Add one match</h3><p className="muted">For a single extra match. Pick two teams, a court and a start time.</p>
       <form className="fm" onSubmit={add}>
         {['team1', 'team2'].map(k => <select key={k} required value={mf[k]} onChange={e => setMf({ ...mf, [k]: e.target.value })}>
           <option value="">{k === 'team1' ? 'Team A' : 'Team B'}</option>{tm.map(t => <option key={t.id} value={t.id}>{tn(t)}</option>)}</select>)}
@@ -228,18 +243,32 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
         <select value={mf.duration} onChange={e => setMf({ ...mf, duration: e.target.value })}>{[...new Set([15, 20, 25, 30, 40, 45, 60, 75, 90, 120, +mf.duration].filter(Boolean))].sort((a, b) => a - b).map(x => <option key={x} value={x}>{x} min</option>)}</select>
         <div className="full"><DT value={mf.start_at} onChange={v => setMf({ ...mf, start_at: v })} /></div>
         <button className="btn">Schedule match</button>
-      </form></div>}
-    {admin && <div className="panel"><h3>Tools</h3><div className="fm">
-      <select value={dl} onChange={e => setDl(+e.target.value)}>{[15, 30, 45, 60].map(x => <option key={x} value={x}>Delay {x} min</option>)}</select>
-      <button className="btn o" onClick={delay}>Delay all upcoming</button>
-      <button className="btn o" onClick={lockAll}>Lock all finished</button>
-      {!hasKO && tm.length > 0 && <><select value={gf} onChange={e => setGf(e.target.value)}>{fmtOptions(gf).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-        <button className="btn" onClick={genKO}>Generate knockout</button></>}
-    </div></div>}
-    {admin && <Reorder ms={ms} courts={courts} edit={edit} swap={swap} />}
-    {admin && hasKO && <div className="panel"><h3>Bracket</h3><BracketView matches={ms} onPick={pickMatch} title="Bracket" /></div>}
-    <h3 className="sec">Match control <span className="chip">{ms.length}</span></h3>
-    <div className="grid">{ms.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m} plain>
+      </form></div>
+    <div className="panel"><h3>Knockout stage</h3>
+      {hasKO ? <p className="muted">The knockout stage already exists. See it under Results → Bracket and edit its matches in Match control.</p>
+        : !tm.length ? <p className="muted">Add teams first.</p>
+        : <><p className="muted">Creates the semifinals, third-place match and final. Teams fill in automatically when the group stage is finished.</p>
+          <div className="fm"><select value={gf} onChange={e => setGf(e.target.value)}>{fmtOptions(gf).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+            <button className="btn" onClick={genKO}>Generate knockout</button></div></>}
+    </div>
+  </>
+
+  if (view === 'timetable') return <>
+    <Reorder ms={ms} courts={courts} edit={edit} swap={swap} />
+    <div className="panel"><h3>Bulk actions</h3><p className="muted">Use after rain or a long match: push every upcoming match later in one go, or lock all finished results so they cannot change by accident.</p>
+      <div className="fm"><select value={dl} onChange={e => setDl(+e.target.value)}>{[15, 30, 45, 60].map(x => <option key={x} value={x}>Delay {x} min</option>)}</select>
+        <button className="btn o" onClick={delay}>Delay all upcoming</button>
+        <button className="btn o" onClick={lockAll}>Lock all finished</button></div></div>
+  </>
+
+  if (view === 'bracket') return hasKO
+    ? <div className="panel"><h3>Bracket</h3><p className="muted">Click a match to open it for editing in Match control.</p><BracketView matches={ms} onPick={m => onFocus(m.id)} title="Bracket" /></div>
+    : <div className="empty">There is no knockout stage yet.<button className="btn" onClick={() => go('fixtures')}>Create the knockout stage</button></div>
+
+  return <>
+    <div className="chips">{[['all', 'All'], ['live', 'Live'], ['todo', 'Upcoming'], ['done', 'Finished']].map(([k, l]) =>
+      <button key={k} className={flt === k ? 'on' : ''} onClick={() => setFlt(k)}>{l} <span>{cnt[k]}</span></button>)}</div>
+    <div className="grid">{shown.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m} plain>
       {editing === m.id ? <EditForm m={m} tm={tm} courts={courts} onSave={f => save(m, f)} onCancel={() => setEditing(null)} onDelete={() => del(m)} /> :
         scoring === m.id ? <ScoreEdit m={m} onSave={v => saveScore(m, v)} onCancel={() => setScoring(null)} /> :
         wob === m.id ? <WalkoverBox m={m} onSave={w => walkover(m, w)} onCancel={() => setWob(null)} /> :
@@ -263,6 +292,7 @@ function Matches({ tm, ms, tid, admin, run, load, settings }) {
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Delete</button>}
         </div>}
     </Card></div>)}</div>
+    {!shown.length && <div className="empty">{ms.length ? 'No matches in this view.' : 'No matches yet.'}{admin && !ms.length && <button className="btn" onClick={() => go('fixtures')}>Create matches</button>}</div>}
   </>
 }
 
@@ -417,7 +447,7 @@ function Announce({ ann, run }) {
   </div>
 }
 
-function Settings({ me, admin, run, load, settings, save }) {
+function AccountPage({ me, admin, run }) {
   const [np, setNp] = useState(''), [cp, setCp] = useState(''), [staff, setStaff] = useState([]), [nf, setNf] = useState({ username: '', password: '', role: 'scorer' })
   const loadStaff = () => admin && supabase.from('staff').select('*').order('created_at').then(r => setStaff(r.data || []))
   useEffect(() => { loadStaff() }, [admin])
@@ -453,12 +483,6 @@ function Settings({ me, admin, run, load, settings, save }) {
         <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={cp} onChange={e => setCp(e.target.value)} />
         <button className="btn">Update password</button></form></div>
     {admin && <>
-      <SystemCheck />
-      <SiteSettings settings={settings} save={save} />
-      <EventSettings settings={settings} save={save} />
-      <TimeSettings settings={settings} save={save} />
-      <RuleSettings settings={settings} save={save} />
-      <CourtsPanel settings={settings} save={save} />
       <div className="panel"><h3>Accounts</h3><p className="muted">Admin: full access. Scorer: can start matches, enter and correct scores, record walkovers and notes. You can change a role at any time, and reset a password if someone forgets it (it is a new password you hand over; the old one stops working).</p>
         <form className="fm" onSubmit={addUser}>
           <input required placeholder="Username" autoCapitalize="none" value={nf.username} onChange={e => setNf({ ...nf, username: e.target.value })} />
@@ -469,17 +493,47 @@ function Settings({ me, admin, run, load, settings, save }) {
           <td>{s.user_id === me.user_id ? s.role : <select value={s.role} onChange={e => run(supabase.from('staff').update({ role: e.target.value }).eq('user_id', s.user_id), 'Changed role', `${s.username} → ${e.target.value}`).then(loadStaff)}><option value="scorer">scorer</option><option value="admin">admin</option></select>}</td>
           <td className="ra">{s.user_id !== me.user_id && <><button className="btn o sm" onClick={() => resetPw(s)}>Reset password</button>{' '}
             <button className="btn o sm danger" onClick={() => confirm(`Remove access for ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id), 'Removed account', s.username).then(loadStaff)}>Remove</button></>}</td></tr>)}</tbody></table></div></div>
-      <BackupPanel load={load} />
     </>}
   </>
 }
 
+// ---------- Admin navigation: 4 groups, each page does exactly one job ----------
+const GI = {
+  day: <><circle cx="12" cy="12" r="3" /><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4" /></>,
+  setup: <><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></>,
+  results: <path d="M8 4h8v5a4 4 0 01-8 0zM8 6H4v1a3 3 0 003 3M16 6h4v1a3 3 0 01-3 3M12 13v4M8 20h8" />,
+  system: <><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" /></>
+}
+const NAV = [
+  { id: 'day', label: 'Match day', pages: [
+    { id: 'overview', label: 'Overview', admin: 1, tour: 1, hint: 'How far the event has progressed and what needs your attention.' },
+    { id: 'scorer', label: 'Scorer', hint: 'Full-screen scoring for one court: two big +1 buttons and Undo. Keeps working with a weak signal.' },
+    { id: 'control', label: 'Match control', tour: 1, hint: 'Start matches, add points, correct scores, record walkovers and notes for every match.' },
+    { id: 'announcements', label: 'Announcements', admin: 1, hint: 'Messages shown at the top of the public site and on the TV screen.' }] },
+  { id: 'setup', label: 'Setup', admin: 1, pages: [
+    { id: 'tournaments', label: 'Tournaments', admin: 1, hint: 'Create and edit the categories, for example Beginner Men.' },
+    { id: 'teams', label: 'Teams', admin: 1, tour: 1, hint: 'Add, import, edit and withdraw teams, and draw them into groups.' },
+    { id: 'fixtures', label: 'Create matches', admin: 1, tour: 1, hint: 'Generate the group fixtures, add a single match, or create the knockout stage.' },
+    { id: 'timetable', label: 'Timetable', admin: 1, tour: 1, hint: 'Change match times and courts, move matches up or down, delay everything, lock finished results.' }] },
+  { id: 'results', label: 'Results', admin: 1, pages: [
+    { id: 'standings', label: 'Standings', admin: 1, hint: 'Group tables, tie-break warnings and manual ranking when teams are level.' },
+    { id: 'bracket', label: 'Bracket', admin: 1, tour: 1, hint: 'The knockout bracket. Click a match to edit it.' },
+    { id: 'export', label: 'Export & print', admin: 1, hint: 'Download results, standings and schedules, or print them.' }] },
+  { id: 'system', label: 'System', pages: [
+    { id: 'site', label: 'Site & event page', admin: 1, hint: 'Event name, logo, colours, language and the Info page shown to visitors.' },
+    { id: 'rules', label: 'Rules & courts', admin: 1, hint: 'Time zone, default scoring rules and the list of courts.' },
+    { id: 'accounts', label: 'Accounts', hint: 'Change your password. Admins can also add staff accounts and reset passwords.' },
+    { id: 'backup', label: 'Backup & check', admin: 1, hint: 'Back up and restore the data, and check that the system is set up correctly.' },
+    { id: 'history', label: 'History', admin: 1, hint: 'Who changed what, and when.' }] }
+]
+
 export default function Admin({ matches: serverMatches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
-  const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [tab, setTab] = useState('matches'), [at, setAt] = useState('')
+  const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [page, setPageS] = useState(() => { try { return sessionStorage.getItem('adm_page') || '' } catch { return '' } }), [at, setAt] = useState(''), [focusId, setFocusId] = useState(null)
+  const setPage = p => { setPageS(p); try { sessionStorage.setItem('adm_page', p) } catch {} window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const ob = useOutbox()
   const matches = useMemo(() => overlay(serverMatches, ob.items), [serverMatches, ob.items]) // this phone's not-yet-sent points shown on top
   useEffect(() => { setSyncHook(load); return () => setSyncHook(null) }, [load])
-  useEffect(() => { if (me && me.role !== 'admin') setTab('scorer') }, [me && me.user_id]) // scorers land straight on the scorer screen
+  useEffect(() => { if (me && me.role !== 'admin') setPage('scorer') }, [me && me.user_id]) // scorers land straight on the scorer screen
   useEffect(() => {
     supabase.auth.getSession().then(r => setSession(r.data.session))
     const { data } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
@@ -523,21 +577,42 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
     log(act || 'Updated settings', detail); load(); return true
   }
   const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at)
-  const tabs = [['scorer', 'Scorer'], ['matches', 'Matches'], ...(admin ? [['teams', 'Teams'], ['standings', 'Standings'], ['tournaments', 'Tournaments'], ['announcements', 'Announcements'], ['export', 'Export'], ['history', 'History']] : []), ['settings', 'Settings']]
-  const needT = (tab === 'matches' || tab === 'teams') && !at
+  const groups = NAV.filter(g => admin || !g.admin).map(g => ({ ...g, pages: g.pages.filter(p => admin || !p.admin) })).filter(g => g.pages.length)
+  const pages = groups.flatMap(g => g.pages.map(p => ({ ...p, g })))
+  const cur = pages.find(p => p.id === page) || pages.find(p => p.id === (admin ? 'overview' : 'scorer'))
+  const liveNow = matches.filter(m => m.status === 'live').length
+  const go = id => setPage(id)
+  const focus = id => { setFocusId(id); if (id) setPage('control') }
+  const label = p => p.id === 'accounts' && !admin ? 'My password' : p.label
+  const view = ['overview', 'control', 'fixtures', 'timetable', 'bracket'].includes(cur.id) ? cur.id : null
   return <div className="adm">
     <div className="ah"><div><h2>Admin console</h2><span className="muted">{me.username} · {me.role}</span></div><div className="ctrl"><SyncBadge /><button className="btn o sm" onClick={() => supabase.auth.signOut()}>Sign out</button></div></div>
-    <div className="subnav">{tabs.map(([k, v]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{v}</button>)}</div>
-    {(tab === 'matches' || tab === 'teams') && tours.length > 0 && <div className="tools"><select value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {genderLabel(t.gender)} {t.level}</option>)}</select></div>}
-    {needT && <div className="empty">Create a tournament first{admin ? ' in the Tournaments tab.' : '.'}</div>}
-    {tab === 'scorer' && <ScorerHome matches={matches} settings={settings} />}
-    {tab === 'standings' && admin && <StandingsPanel tours={tours} teams={teams} matches={matches} settings={settings} save={save} />}
-    {tab === 'matches' && !needT && <Matches tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} />}
-    {tab === 'teams' && admin && !needT && <Teams tm={tm} ms={ms} tours={tours} tid={at} run={run} load={load} settings={settings} />}
-    {tab === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}
-    {tab === 'announcements' && admin && <Announce ann={ann} run={run} />}
-    {tab === 'export' && admin && <ExportPanel tours={tours} teams={teams} matches={matches} at={at} onPrint={onPrint} />}
-    {tab === 'history' && admin && <HistoryPanel />}
-    {tab === 'settings' && <Settings me={me} admin={admin} run={run} load={load} settings={settings} save={save} />}
+    <div className="alay">
+      <nav className="anav" aria-label="Admin sections">{groups.map(g => <div key={g.id} className={'ag' + (g.id === cur.g.id ? ' on' : '')}>
+        <button className="agh" onClick={() => g.id !== cur.g.id && go(g.pages[0].id)} aria-current={g.id === cur.g.id}><svg className="agi" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{GI[g.id]}</svg><span>{g.label}</span></button>
+        <div className="aps">{g.pages.map(p => <button key={p.id} className={'ap' + (p.id === cur.id ? ' on' : '')} onClick={() => go(p.id)} aria-current={p.id === cur.id ? 'page' : undefined}>{label(p)}{p.id === 'control' && liveNow > 0 && <i className="lv">{liveNow} live</i>}</button>)}</div>
+      </div>)}</nav>
+      <section className="apage">
+        <header className="aphead"><div className="crumb">{cur.g.label} › {label(cur)}</div><h2>{label(cur)}</h2><p>{cur.hint}</p></header>
+        {cur.tour && (tours.length ? <div className="tbar"><label htmlFor="admtour">Tournament</label>
+          <select id="admtour" value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {genderLabel(t.gender)} {t.level}</option>)}</select>
+          <span className="chip">{tm.length} teams</span><span className="chip">{ms.length} matches</span></div>
+          : <div className="empty">Create a tournament first{admin ? '.' : ' (ask an admin).'}{admin && <button className="btn" onClick={() => go('tournaments')}>Create a tournament</button>}</div>)}
+        {(!cur.tour || (tours.length > 0 && at)) && <>
+          {cur.id === 'scorer' && <ScorerHome matches={matches} settings={settings} />}
+          {view && <Matches key={view} view={view} tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} focusId={focusId} onFocus={focus} go={go} />}
+          {cur.id === 'announcements' && admin && <Announce ann={ann} run={run} />}
+          {cur.id === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}
+          {cur.id === 'teams' && admin && <Teams tm={tm} ms={ms} tours={tours} tid={at} run={run} load={load} settings={settings} />}
+          {cur.id === 'standings' && admin && <StandingsPanel tours={tours} teams={teams} matches={matches} settings={settings} save={save} />}
+          {cur.id === 'export' && admin && <ExportPanel tours={tours} teams={teams} matches={matches} at={at} onPrint={onPrint} />}
+          {cur.id === 'site' && admin && <><SiteSettings settings={settings} save={save} /><EventSettings settings={settings} save={save} /></>}
+          {cur.id === 'rules' && admin && <><TimeSettings settings={settings} save={save} /><RuleSettings settings={settings} save={save} /><CourtsPanel settings={settings} save={save} /></>}
+          {cur.id === 'accounts' && <AccountPage me={me} admin={admin} run={run} />}
+          {cur.id === 'backup' && admin && <><BackupPanel load={load} /><SystemCheck /></>}
+          {cur.id === 'history' && admin && <HistoryPanel />}
+        </>}
+      </section>
+    </div>
   </div>
 }
