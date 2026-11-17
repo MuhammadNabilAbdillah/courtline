@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useContext } from 'react'
 import { supabase } from './supabase'
 import { Card, Clock, AnnounceBar, InstallButton, Ctx, Brand, Feature, QRCode } from './ui'
-import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, genderLabel, tourLabel } from './util'
+import { fmtDay, fmtTime, fmtDate, tn, rule, rd, setCfg, DEFAULTS, activeCourts, readFavs, writeFavs, hasFav, tourSub, tourLabel, slotText } from './util'
 import { BracketView, virtualKO } from './Bracket'
 import { GroupTable, TeamPage, MatchPage } from './Team'
 import PrintSheet from './Print'
@@ -10,10 +10,13 @@ import { InfoPage } from './Event'
 import { estimates } from './turn'
 import { setRankOverrides } from './standings'
 import Admin from './Admin'
-import { t } from './i18n'
+import { t, getLang, setLang } from './i18n'
+import Home, { Champions, Courts } from './Home'
 
 const Q = '*, t1:teams!matches_team1_fkey(*), t2:teams!matches_team2_fkey(*)'
 const ICONS = {
+  home: <path d="M4 11l8-7 8 7v9a1 1 0 01-1 1h-4v-6H9v6H5a1 1 0 01-1-1z" />,
+  more: <><circle cx="6" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="18" cy="12" r="1.6" /></>,
   live: <><circle cx="12" cy="12" r="3" /><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4" /></>,
   schedule: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M9 3v4M15 3v4" /></>,
   bracket: <path d="M4 5h5v4H4zM4 15h5v4H4zM15 10h5v4h-5zM9 7h3v10H9M12 12h3" />,
@@ -23,7 +26,7 @@ const ICONS = {
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></>,
   admin: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></>
 }
-const TABS = [['live', 'Live'], ['schedule', 'Schedule'], ['bracket', 'Bracket'], ['results', 'Results'], ['teams', 'Teams'], ['info', 'Info'], ['tv', 'TV'], ['admin', 'Admin']]
+const TABS = [['home', 'Home'], ['live', 'Live'], ['schedule', 'Schedule'], ['bracket', 'Bracket'], ['results', 'Results'], ['teams', 'Teams'], ['info', 'Info'], ['tv', 'TV'], ['admin', 'Admin']]
 const Ico = ({ k }) => <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ICONS[k]}</svg>
 
 function useData() {
@@ -71,7 +74,7 @@ function Banner({ one, matches, teams, site }) {
   const kick = matches.length && !matches.some(m => m.status !== 'scheduled') ? Math.min(...matches.map(m => +new Date(m.start_at))) : 0
   return <section className="banner">
     <div>
-      <small>{one ? `${genderLabel(one.gender)} · ${one.level}` : t('PADEL LIVE SCORE')}</small>
+      <small>{one ? tourSub(one) : t('PADEL LIVE SCORE')}</small>
       <h1>{one ? one.name : (site.name || t('Padel live scores'))}</h1>
       <div className="tmeta">{one && <><span>{ko ? t('Knockout Stage') : t('Group Stage')}</span>{one.start_date && <span>{fmtDate(one.start_date)}</span>}</>}{site.dates && <span>{site.dates}</span>}{site.venue && <span>{site.venue}</span>}{kick > 0 && <Countdown target={kick} />}</div>
     </div>
@@ -79,37 +82,11 @@ function Banner({ one, matches, teams, site }) {
   </section>
 }
 
-// Shown once a tournament's final has been played
-function Champions({ tours, teams, matches }) {
-  const rows = tours.map(tr => {
-    const ms = matches.filter(m => m.tournament_id === tr.id), fin = ms.find(m => m.round === 'Final' && m.status === 'finished'), th = ms.find(m => m.round === 'Third Place' && m.status === 'finished')
-    if (!fin) return null
-    const pick = (m, win) => (win ? (m.winner === m.team1 ? m.t1 : m.t2) : (m.winner === m.team1 ? m.t2 : m.t1))
-    return { tr, champ: pick(fin, true), runner: pick(fin, false), third: th ? pick(th, true) : null }
-  }).filter(Boolean)
-  if (!rows.length) return null
-  return rows.map(r => <section key={r.tr.id} className="champ">
-    <small>{t('CHAMPIONS')}{tours.length > 1 ? ` · ${r.tr.name}` : ''}</small>
-    <h2>🏆 {tn(r.champ)}</h2>
-    <p>{r.champ && `${r.champ.player1} / ${r.champ.player2}`}</p>
-    <div className="tmeta"><span>{t('Runner-up')}: {tn(r.runner)}</span>{r.third && <span>{t('Third place')}: {tn(r.third)}</span>}</div>
-  </section>)
-}
-
-function Courts({ matches, courts }) {
-  const names = [...new Set([...courts, ...[...new Set(matches.filter(m => m.status !== 'finished').map(m => m.court))].sort()])]
-  if (!names.length) return null
-  return <><h3 className="sec">{t('Court status')}</h3><div className="courts">{names.map(c => {
-    const l = matches.find(m => m.court === c && m.status === 'live'), n = matches.find(m => m.court === c && m.status === 'scheduled')
-    return <div key={c} className={'ct' + (l ? ' on' : '')}><b>{c}</b><p>{l ? `${rd(l.round)} · ${t('live')}` : n ? t('Next {0}', fmtTime(n.start_at)) : t('Free')}</p></div>
-  })}</div></>
-}
-
 function Live({ matches, favs, courts, tours = [], teams = [], top = null }) {
   const byFav = (a, b) => hasFav(b, favs) - hasFav(a, favs) // your teams first, otherwise time order is kept
   const live = matches.filter(m => m.status === 'live').sort(byFav), next = matches.filter(m => m.status === 'scheduled').sort(byFav).slice(0, favs.length ? 6 : 4)
   return <>
-    <Champions tours={tours} teams={teams} matches={matches} />
+    <Champions tours={tours} matches={matches} />
     {top}
     {live[0] && <Feature m={live[0]} />}
     <h3 className="sec">{t('Live now')} <span className="chip">{live.length}</span></h3>
@@ -125,7 +102,7 @@ function Schedule({ matches, favs, onPrint, est = {}, courts = [] }) {
   const { go } = useContext(Ctx)
   const [q, setQ] = useState(''), [mine, setMine] = useState(false), [view, setView] = useState('list')
   const hit = m => (!mine || hasFav(m, favs)) &&
-    (tn(m.t1) + tn(m.t2) + m.t1?.player1 + m.t1?.player2 + m.t2?.player1 + m.t2?.player2 + m.court + m.round).toLowerCase().includes(q.toLowerCase())
+    (tn(m.t1) + tn(m.t2) + (slotText(m.slot1) || '') + (slotText(m.slot2) || '') + m.t1?.player1 + m.t1?.player2 + m.t2?.player1 + m.t2?.player2 + m.court + m.round).toLowerCase().includes(q.toLowerCase())
   const list = matches.filter(m => m.status !== 'finished' && hit(m))
   const days = [...new Set(list.map(m => fmtDay(m.start_at)))]
   return <>
@@ -141,7 +118,7 @@ function Schedule({ matches, favs, onPrint, est = {}, courts = [] }) {
     days.length ? days.map(d => <div key={d}><div className="day">{d}</div><div className="card list">
       {list.filter(m => fmtDay(m.start_at) === d).map(m => <div className={'srow' + (hasFav(m, favs) ? ' fav' : '')} key={m.id}>
         <div className="st"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small>{est[m.id] && est[m.id].late && m.status === 'scheduled' && <small className="late">~{fmtTime(new Date(Math.round(est[m.id].start / 3e5) * 3e5))}</small>}</div>
-        <div className="sm"><b>{tn(m.t1) || m.slot1 || t('TBD')}</b> <span>{t('vs')}</span> <b>{tn(m.t2) || m.slot2 || t('TBD')}</b>
+        <div className="sm"><b>{tn(m.t1) || slotText(m.slot1) || t('TBD')}</b> <span>{t('vs')}</span> <b>{tn(m.t2) || slotText(m.slot2) || t('TBD')}</b>
           <small>{rd(m.round)}{m.tname ? ` · ${m.tname}` : ''} · {rule(m)}</small></div>
         <span className={'badge ' + (m.status === 'live' ? 'live' : '')}>{m.status === 'live' ? t('LIVE') : t('UPCOMING')}</span></div>)}
     </div></div>) : <div className="empty">{t('No scheduled matches.')}</div>}
@@ -150,11 +127,11 @@ function Schedule({ matches, favs, onPrint, est = {}, courts = [] }) {
 
 function BracketPage({ tours, teams, matches }) {
   if (!tours.length) return <div className="empty">{t('No tournaments yet.')}</div>
-  return <><Champions tours={tours} teams={teams} matches={matches} />{tours.map(tr => {
+  return <><Champions tours={tours} matches={matches} />{tours.map(tr => {
     const tm = teams.filter(x => x.tournament_id === tr.id), ms = matches.filter(x => x.tournament_id === tr.id)
     const groups = [...new Set(tm.map(x => x.grp))].sort(), real = ms.some(m => m.round !== 'Group Stage')
     return <div key={tr.id} className="tsec">
-      {tours.length > 1 && <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{genderLabel(tr.gender)}</span><span className="chip">{tr.level}</span></div></div>}
+      {tours.length > 1 && <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{tourSub(tr)}</span></div></div>}
       <h3 className="sec">{t('Bracket')} {!real && <span className="chip">{t('Projected')}</span>}</h3>
       <BracketView matches={real ? ms : virtualKO(tm)} title={tr.name} virtual={!real} />
       <div className="gg">{groups.map(g => <GroupTable key={g} g={g} teams={tm} matches={ms} />)}</div>
@@ -197,33 +174,38 @@ function useHash() {
 const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('')
 
 export default function App() {
-  const [tab, setTab] = useState('live'), [tid, setTid] = useState('all'), d = useData(), first = useRef(true)
+  const [tab, setTab] = useState('home'), [tid, setTid] = useState('all'), d = useData(), first = useRef(true)
   const [favs, setFavs] = useState(readFavs), [print, setPrint] = useState(null), [, bump] = useState(0), [now, setNow] = useState(Date.now())
+  const [lang, setLangS] = useState(getLang()), [more, setMore] = useState(false)
   const [theme, setTheme] = useState(() => { try { const s = localStorage.getItem('cl-theme'); if (s) return s } catch { /* no storage */ } return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' })
   const hash = useHash(), route = /^#\/(match|team)\/([\w-]+)$/.exec(hash)
-  const S = d.settings, lang = 'en'
-  setCfg({ tz: S.tz, hour12: S.hour12, name: S.name }) // before anything renders, so every time on screen uses the configured zone
-  setRankOverrides(S.rankOverrides) // manual group rankings set by an admin
+  const S = d.settings
+  setCfg({ tz: S.tz, hour12: S.hour12, name: S.name }) // sebelum render, supaya semua jam memakai zona waktu acara
+  setRankOverrides(S.rankOverrides) // urutan grup manual dari admin
 
   const brand = /^#[0-9a-f]{6}$/i.test(S.color) ? S.color : DEFAULTS.color
   document.documentElement.style.setProperty('--b', brand); document.documentElement.style.setProperty('--bd', shade(brand, .7))
-  useEffect(() => { // event name, language, theme
+  useEffect(() => { // judul, bahasa, tema
     const r = document.documentElement, c = brand
-    document.title = `${S.name || 'Courtline'} — ${t('Padel Live Score')}`
+    document.title = `${S.name || 'Padel'} — ${t('Padel Live Score')}`
     document.querySelector('meta[name=theme-color]')?.setAttribute('content', c)
     r.lang = lang; r.dataset.theme = theme
   }, [brand, S.name, lang, theme])
+  useEffect(() => { // tinggi header dipakai oleh menu samping dan bar admin yang menempel
+    const f = () => { const b = document.querySelector('.bar'); if (b) document.documentElement.style.setProperty('--barh', b.offsetHeight + 'px') }
+    f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f)
+  }, [])
   useEffect(() => {
     if (first.current) { first.current = false; return }
     document.getElementById('content')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    document.querySelector('.bar nav .on, .tabbar .on')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
   }, [tab])
   useEffect(() => { if (route) window.scrollTo(0, 0) }, [hash])
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(i) }, [])
 
   const toggle = id => setFavs(f => { const n = f.includes(id) ? f.filter(x => x !== id) : [...f, id]; writeFavs(n); return n })
-  const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* private mode */ } }
-  const nav = k => { if (location.hash) location.hash = ''; setTab(k) }
+  const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* mode privat */ } }
+  const switchLang = () => { const n = lang === 'id' ? 'en' : 'id'; setLang(n); setLangS(n) }
+  const nav = k => { setMore(false); if (location.hash) location.hash = ''; setTab(k) }
 
   const tmap = Object.fromEntries(d.tours.map(x => [x.id, tourLabel(x)]))
   const all = d.matches.map(m => ({ ...m, tname: tmap[m.tournament_id] }))
@@ -232,37 +214,55 @@ export default function App() {
   const f = { tours, teams: d.teams.filter(pick), matches: d.matches.filter(pick).map(m => ({ ...m, tname: tid === 'all' ? tmap[m.tournament_id] : null })), one: tid === 'all' ? null : tours[0] }
   const ctx = { favs, toggle, go }
   const courts = activeCourts(S), est = estimates(d.matches, now), info = tab === 'info' && !route
+  const openTour = (id, k) => { setTid(id); nav(k) }
 
   if (print) return <PrintSheet kind={print.kind} tours={d.tours} teams={d.teams} matches={all} tid={print.tid ?? tid} site={S} onClose={() => setPrint(null)} />
-  if (tab === 'tv') return <Ctx.Provider value={ctx}><TV matches={f.matches} ann={d.ann} site={S} exit={() => setTab('live')} /></Ctx.Provider>
-  const admin = tab === 'admin' && !route
+  if (tab === 'tv') return <Ctx.Provider value={ctx}><TV matches={f.matches} ann={d.ann} site={S} exit={() => setTab('home')} /></Ctx.Provider>
+  const admin = tab === 'admin' && !route, home = tab === 'home' && !route
+  const MAIN = ['home', 'live', 'schedule', 'bracket', 'results'], MORE = ['teams', 'info', 'tv', 'admin']
+  const NavBtn = ({ k, v, cls }) => <button className={cls || ''} onClick={() => nav(k)} aria-current={tab === k && !route ? 'page' : undefined}><Ico k={k} /><span>{t(v)}</span></button>
   return <Ctx.Provider value={ctx}>
     <header className="bar"><div className="bi">
       <Brand site={S} />
-      <nav>{TABS.map(([k, v]) => <button key={k} className={tab === k && !route ? 'on' : ''} onClick={() => nav(k)}>{t(v)}</button>)}</nav>
+      <span className="tsp" />
+      <button className="lang" onClick={switchLang} aria-label={t('Language')} title={t('Language')}><b className={lang === 'id' ? 'on' : ''}>ID</b><b className={lang === 'en' ? 'on' : ''}>EN</b></button>
       <Clock />
     </div></header>
     <AnnounceBar items={d.ann} />
-    <main className="wrap" id="content">
-      {!admin && !route && !info && <Banner {...f} site={S} />}
-      {!admin && <div className="tools">
-        {!route && !info && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All tournaments')}><option value="all">{t('All tournaments')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{tourLabel(x)}</option>)}</select>}
-        {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => bump(n => n + 1))}>{t('Notify me')}</button>}
-        <InstallButton />
-        <span className="tsp" />
-        <button className="btn o sm" onClick={flip} aria-label={t('Dark mode')} title={t('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
-      </div>}
-      {route && route[1] === 'match' && <MatchPage id={route[2]} matches={all} back={back} ready={d.ready} />}
-      {route && route[1] === 'team' && <TeamPage id={route[2]} teams={d.teams} matches={all} tours={d.tours} back={back} ready={d.ready} est={est} />}
-      {!route && tab === 'live' && <Live {...f} favs={favs} courts={courts} top={<MyTurn favs={favs} teams={d.teams} matches={all} est={est} go={go} toTeams={() => nav('teams')} />} />}
-      {!route && tab === 'schedule' && <Schedule {...f} favs={favs} est={est} courts={courts} onPrint={kind => setPrint({ kind })} />}
-      {!route && tab === 'bracket' && <BracketPage {...f} />}
-      {!route && tab === 'results' && <Results {...f} favs={favs} />}
-      {!route && tab === 'teams' && <TeamsPage teams={f.teams} tours={f.tours} matches={f.matches} favs={favs} toggle={toggle} go={go} />}
-      {info && <InfoPage site={S} matches={all} onTv={() => nav('tv')} />}
-      {admin && <Admin {...d} tid={tid} onBack={() => setTab('live')} onPrint={(kind, id) => setPrint({ kind, tid: id })} />}
-    </main>
-    <footer>{S.name || 'Courtline'}</footer>
-    <nav className="tabbar">{TABS.filter(([k]) => k !== 'tv').map(([k, v]) => <button key={k} className={tab === k && !route ? 'on' : ''} onClick={() => nav(k)}><Ico k={k} />{t(v)}</button>)}</nav>
+    <div className={'shell' + (admin ? ' noside' : '')}>
+      {!admin && <aside className="side"><nav aria-label={t('Menu')}>
+        {TABS.map(([k, v]) => <button key={k} className={(tab === k && !route ? 'on' : '') + (k === 'admin' ? ' adm-link' : '')} onClick={() => nav(k)} aria-current={tab === k && !route ? 'page' : undefined}><Ico k={k} /><span>{k === 'admin' ? t('Staff login') : t(v)}</span></button>)}
+      </nav></aside>}
+      <main className="wrap" id="content">
+        {!admin && !route && !info && <Banner {...f} site={S} />}
+        {!admin && <div className="tools">
+          {!route && !info && <select value={tid} onChange={e => setTid(e.target.value)} aria-label={t('All categories')}><option value="all">{t('All categories')}</option>{d.tours.map(x => <option key={x.id} value={x.id}>{tourLabel(x)}</option>)}</select>}
+          {window.Notification?.permission === 'default' && <button className="btn o sm" onClick={() => Notification.requestPermission().then(() => bump(n => n + 1))}>{t('Notify me')}</button>}
+          <InstallButton />
+          <span className="tsp" />
+          <button className="btn o sm" onClick={flip} aria-label={t('Dark mode')} title={t('Dark mode')}>{theme === 'dark' ? '☀' : '☾'}</button>
+        </div>}
+        {route && route[1] === 'match' && <MatchPage id={route[2]} matches={all} back={back} ready={d.ready} />}
+        {route && route[1] === 'team' && <TeamPage id={route[2]} teams={d.teams} matches={all} tours={d.tours} back={back} ready={d.ready} est={est} />}
+        {home && <Home {...f} allTours={d.tours} allTeams={d.teams} allMatches={all} favs={favs} courts={courts} est={est} go={go} nav={nav} openTour={openTour} />}
+        {!route && tab === 'live' && <Live {...f} favs={favs} courts={courts} top={<MyTurn favs={favs} teams={d.teams} matches={all} est={est} go={go} toTeams={() => nav('teams')} />} />}
+        {!route && tab === 'schedule' && <Schedule {...f} favs={favs} est={est} courts={courts} onPrint={kind => setPrint({ kind })} />}
+        {!route && tab === 'bracket' && <BracketPage {...f} />}
+        {!route && tab === 'results' && <Results {...f} favs={favs} />}
+        {!route && tab === 'teams' && <TeamsPage teams={f.teams} tours={f.tours} matches={f.matches} favs={favs} toggle={toggle} go={go} />}
+        {info && <InfoPage site={S} matches={all} onTv={() => nav('tv')} />}
+        {admin && <Admin {...d} tid={tid} onBack={() => setTab('home')} onPrint={(kind, id) => setPrint({ kind, tid: id })} />}
+      </main>
+    </div>
+    <footer>{S.name || 'Padel'}</footer>
+    {!admin && <nav className="tabbar" aria-label={t('Menu')}>
+      {MAIN.map(k => <NavBtn key={k} k={k} v={TABS.find(x => x[0] === k)[1]} cls={tab === k && !route ? 'on' : ''} />)}
+      <button className={more || (MORE.includes(tab) && !route) ? 'on' : ''} onClick={() => setMore(!more)} aria-expanded={more}><Ico k="more" /><span>{t('More')}</span></button>
+    </nav>}
+    {more && !admin && <div className="msh" onClick={() => setMore(false)}><div className="msp" role="dialog" aria-label={t('More')} onClick={e => e.stopPropagation()}>
+      <div className="mshh"><b>{t('More')}</b><button className="drx" onClick={() => setMore(false)} aria-label={t('Close')}>×</button></div>
+      <div className="msg">{MORE.map(k => <button key={k} onClick={() => nav(k)} className={tab === k ? 'on' : ''}><Ico k={k} /><span>{k === 'admin' ? t('Staff login') : t(TABS.find(x => x[0] === k)[1])}</span></button>)}</div>
+      <div className="mst"><button className="btn o sm" onClick={switchLang}>{t('Language')}: {lang === 'id' ? 'Indonesia' : 'English'}</button><button className="btn o sm" onClick={flip}>{t('Dark mode')} {theme === 'dark' ? '☀' : '☾'}</button></div>
+    </div></div>}
   </Ctx.Provider>
 }

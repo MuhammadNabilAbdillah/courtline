@@ -4,8 +4,8 @@
 create table if not exists tournaments (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  gender text not null default 'Men' check (gender in ('Men','Women')),
-  level text not null default 'Beginner' check (level in ('Bronze','Lower Bronze','Upper Beginner','Beginner')),
+  gender text not null default 'Men' check (gender in ('Men','Women','Mixed')),
+  level text not null default 'Beginner', -- bebas: admin boleh membuat tingkat/kategori apa pun
   start_date date,
   created_at timestamptz default now()
 );
@@ -191,6 +191,16 @@ do $$ begin
   perform cron.schedule('courtline-backup', '0 */6 * * *', 'select public.make_backup_internal(''auto'')');
 exception when others then raise notice 'pg_cron is not available (%). Automatic backups still run while an admin is signed in.', sqlerrm;
 end $$;
+
+-- ===== v9: kategori bebas + bagan manual =====
+-- Aman dijalankan berulang kali (juga di database yang sudah berjalan).
+-- 1) Nama tingkat/kategori tidak lagi dibatasi daftar tetap, supaya admin bisa membuat kategori sendiri (mis. Amatir).
+alter table tournaments drop constraint if exists tournaments_level_check;
+-- 2) Jenis kategori: Putra, Putri, atau Campuran.
+alter table tournaments drop constraint if exists tournaments_gender_check;
+alter table tournaments add constraint tournaments_gender_check check (gender in ('Men','Women','Mixed'));
+-- 3) Penanda "tim dipilih manual" pada pertandingan bagan, supaya pengisian otomatis tidak menimpanya.
+alter table matches add column if not exists manual boolean not null default false;
 
 -- PART 3: first admin.
 -- 1) Supabase > Authentication > Users > Add user:

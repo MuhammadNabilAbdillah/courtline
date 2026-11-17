@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { tn, fmtTime, rule, rd, activeCourts, clock } from './util'
+import { tn, fmtTime, rule, rd, activeCourts, clock, slotText } from './util'
 import { pointLabel, isRace } from './score'
 import { pointPatch, undoPatch } from './engine'
 import { enqueue, flush, dismissError, useOutbox } from './outbox'
 import { log, mname } from './AdminExtra'
 
-// Small status light: shows whether everything typed on this phone has reached the server
+// Lampu status kecil: apakah semua yang dicatat di HP ini sudah sampai ke server
 export function SyncBadge() {
   const o = useOutbox(), [on, setOn] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
   useEffect(() => {
@@ -13,20 +13,20 @@ export function SyncBadge() {
     window.addEventListener('online', a); window.addEventListener('offline', b)
     return () => { window.removeEventListener('online', a); window.removeEventListener('offline', b) }
   }, [])
-  if (o.ops) return <button className="sync warn" onClick={() => flush()}>⟳ {o.ops} not sent yet{!on ? ' · offline' : ''}</button>
-  return <span className={'sync' + (on ? '' : ' off')}>{on ? '● Synced' : '○ Offline'}</span>
+  if (o.ops) return <button className="sync warn" onClick={() => flush()}>⟳ {o.ops} belum terkirim{!on ? ' · offline' : ''}</button>
+  return <span className={'sync' + (on ? '' : ' off')}>{on ? '● Tersinkron' : '○ Offline'}</span>
 }
 
 const finalScore = (m, i) => (isRace(m) ? (m.sets[0] ? m.sets[0][i] : 0) : m.sets.map(s => s[i]).join(' '))
 
-// Full-screen scorer for one court: two big +1 buttons, Undo, team names. Built for a phone held in one hand.
+// Skor layar penuh untuk satu lapangan: dua tombol +1 besar, Batalkan, nama tim. Dibuat untuk HP satu tangan.
 function Scorer({ court, matches, lock, onExit }) {
   const o = useOutbox(), [pick, setPick] = useState(null), [note, setNote] = useState(''), last = useRef(0), nt = useRef(null)
   const list = useMemo(() => matches.filter(m => m.court === court).sort((a, b) => new Date(a.start_at) - new Date(b.start_at)), [matches, court])
   const auto = list.find(m => m.status === 'live') || list.find(m => m.status === 'scheduled') || list[list.length - 1]
   const m = list.find(x => x.id === pick) || auto
 
-  useEffect(() => { // keep the screen awake while scoring
+  useEffect(() => { // layar tetap menyala saat mencatat skor
     let wl = null, dead = false
     const get = async () => { try { if (navigator.wakeLock && !document.hidden) { wl = await navigator.wakeLock.request('screen'); if (dead) wl.release() } } catch { /* not supported */ } }
     get(); document.addEventListener('visibilitychange', get)
@@ -43,15 +43,15 @@ function Scorer({ court, matches, lock, onExit }) {
     const { patch, fin, sc } = pointPatch(m, i, lock)
     enqueue(m, patch)
     if (navigator.vibrate) navigator.vibrate(fin ? [70, 40, 70] : 30)
-    flash(`+1 ${tn(i ? m.t2 : m.t1) || 'Team'} · ${sc}`)
-    if (fin) { setPick(m.id); log('Match finished', `${mname(m)}: ${sc}`) }
+    flash(`+1 ${tn(i ? m.t2 : m.t1) || 'Tim'} · ${sc}`)
+    if (fin) { setPick(m.id); log('Pertandingan selesai', `${mname(m)}: ${sc}`) }
   }
   const undo = () => {
     if (!m || m.locked) return
     const u = undoPatch(m); if (!u) return
-    enqueue(m, u); flash('Last point undone')
+    enqueue(m, u); flash('Poin terakhir dibatalkan')
   }
-  const start = () => { enqueue(m, { status: 'live' }); log('Started match', mname(m)) }
+  const start = () => { enqueue(m, { status: 'live' }); log('Memulai pertandingan', mname(m)) }
   const lastPt = m && m.points && m.points.filter(e => e.t === 0 || e.t === 1).slice(-1)[0]
   const canUndo = m && !m.locked && m.history && m.history.length > 0 && m.status !== 'scheduled'
   const nextUp = m && m.status === 'finished' ? list.find(x => x.status !== 'finished') : null
@@ -61,53 +61,53 @@ function Scorer({ court, matches, lock, onExit }) {
     const win = fin && tm && m.winner === tm.id
     const big = live ? (isRace(m) ? m.p[i] : m.g[i]) : fin ? finalScore(m, i) : '–'
     return <div key={i} className={'scp ' + (i ? 'b' : 'a') + (win ? ' win' : '')}>
-      <div className="scp-name"><h2>{tn(tm) || slot || 'TBD'}</h2>{tm && <small>{tm.player1} / {tm.player2}</small>}</div>
+      <div className="scp-name"><h2>{tn(tm) || slotText(slot) || 'Belum ada'}</h2>{tm && <small>{tm.player1} / {tm.player2}</small>}</div>
       <div className="scp-score">{big}{live && !isRace(m) && <span>{pointLabel(m, i)}</span>}</div>
-      <button className="scp-btn" disabled={!live || m.locked} onClick={() => tap(i)} aria-label={`Add a point for ${tn(tm) || 'team'}`}>+1</button>
+      <button className="scp-btn" disabled={!live || m.locked} onClick={() => tap(i)} aria-label={`Tambah poin untuk ${tn(tm) || 'tim'}`}>+1</button>
     </div>
   }
 
   return <div className="scr">
     <div className="scr-top">
-      <button className="btn g sm" onClick={onExit}>← Exit</button>
+      <button className="btn g sm" onClick={onExit}>← Keluar</button>
       <div className="scr-title"><b>{court}</b><small>{m ? `${rd(m.round)} · ${rule(m)}${m.tname ? ' · ' + m.tname : ''}` : ''}</small></div>
       <SyncBadge />
     </div>
-    {list.length > 1 && <select className="scr-sel" value={m ? m.id : ''} onChange={e => setPick(e.target.value)} aria-label="Match">
-      {list.map(x => <option key={x.id} value={x.id}>{fmtTime(x.start_at)} · {mname(x)}{x.status === 'live' ? ' · LIVE' : x.status === 'finished' ? ' · done' : ''}</option>)}
+    {list.length > 1 && <select className="scr-sel" value={m ? m.id : ''} onChange={e => setPick(e.target.value)} aria-label="Pertandingan">
+      {list.map(x => <option key={x.id} value={x.id}>{fmtTime(x.start_at)} · {mname(x)}{x.status === 'live' ? ' · LIVE' : x.status === 'finished' ? ' · selesai' : ''}</option>)}
     </select>}
     {o.err && <div className="scr-err">{o.err} <button onClick={dismissError}>OK</button></div>}
-    {!m ? <div className="scr-empty">No matches scheduled on {court}.</div> : <>
+    {!m ? <div className="scr-empty">Belum ada pertandingan di {court}.</div> : <>
       <div className="scr-body">{side(0)}{side(1)}</div>
       <div className="scr-bot">
         <div className="scr-info">
-          {note ? <b className="scr-note">{note}</b> : m.status === 'live' && lastPt ? <span>Last point: {tn(lastPt.t ? m.t2 : m.t1)} · {lastPt.sc} · {clock(lastPt.at)}</span>
-            : m.status === 'scheduled' ? <span>Starts {fmtTime(m.start_at)}</span> : m.status === 'finished' ? <span>Final{m.winner ? ` · ${tn(m.winner === m.team1 ? m.t1 : m.t2)} wins` : ''}</span> : <span>0 – 0</span>}
+          {note ? <b className="scr-note">{note}</b> : m.status === 'live' && lastPt ? <span>Poin terakhir: {tn(lastPt.t ? m.t2 : m.t1)} · {lastPt.sc} · {clock(lastPt.at)}</span>
+            : m.status === 'scheduled' ? <span>Mulai {fmtTime(m.start_at)}</span> : m.status === 'finished' ? <span>Selesai{m.winner ? ` · ${tn(m.winner === m.team1 ? m.t1 : m.t2)} menang` : ''}</span> : <span>0 – 0</span>}
         </div>
         <div className="scr-act">
-          {m.status === 'scheduled' && <button className="btn big" disabled={!m.team1 || !m.team2} onClick={start}>Start match</button>}
-          {m.status !== 'scheduled' && <button className="btn o big" disabled={!canUndo} onClick={undo}>↶ Undo</button>}
-          {nextUp && <button className="btn big" onClick={() => setPick(nextUp.id)}>Next: {mname(nextUp)} →</button>}
-          {m.locked && <span className="chip lock">🔒 Locked — ask an admin</span>}
+          {m.status === 'scheduled' && <button className="btn big" disabled={!m.team1 || !m.team2} onClick={start}>Mulai pertandingan</button>}
+          {m.status !== 'scheduled' && <button className="btn o big" disabled={!canUndo} onClick={undo}>↶ Batalkan</button>}
+          {nextUp && <button className="btn big" onClick={() => setPick(nextUp.id)}>Berikutnya: {mname(nextUp)} →</button>}
+          {m.locked && <span className="chip lock">🔒 Terkunci — minta admin</span>}
         </div>
       </div>
     </>}
   </div>
 }
 
-// Scorer tab of the admin console: pick the court, then the full-screen scorer opens
+// Halaman Skor Lapangan: pilih lapangan, lalu layar skor penuh terbuka
 export function ScorerHome({ matches, settings }) {
   const [court, setCourt] = useState(() => { try { return sessionStorage.getItem('cl-court') || '' } catch { return '' } })
   const names = useMemo(() => [...new Set([...activeCourts(settings), ...matches.filter(m => m.status !== 'finished').map(m => m.court)])], [matches, settings])
   const open = c => { setCourt(c); try { sessionStorage.setItem('cl-court', c) } catch { /* private mode */ } }
   const close = () => { setCourt(''); try { sessionStorage.removeItem('cl-court') } catch { /* private mode */ } }
   if (court) return <Scorer court={court} matches={matches} lock={!!settings.autoLock} onExit={close} />
-  return <div className="panel"><h3>Scorer mode</h3>
-    <p className="muted">Pick the court you are scoring. The screen goes full size with two big +1 buttons. If the signal drops, points are kept on this phone and sent automatically when it returns.</p>
+  return <div className="panel"><h3>Mode skor lapangan</h3>
+    <p className="muted">Pilih lapangan yang kamu catat. Layar menjadi penuh dengan dua tombol +1 besar. Jika sinyal hilang, poin disimpan di HP ini dan dikirim otomatis saat sinyal kembali.</p>
     <div className="courts scc">{names.map(c => {
       const l = matches.find(m => m.court === c && m.status === 'live'), n = matches.filter(m => m.court === c && m.status === 'scheduled').sort((a, b) => new Date(a.start_at) - new Date(b.start_at))[0]
-      return <button key={c} className={'ct' + (l ? ' on' : '')} onClick={() => open(c)}><b>{c}</b><p>{l ? `LIVE · ${mname(l)}` : n ? `Next ${fmtTime(n.start_at)} · ${mname(n)}` : 'No matches left'}</p></button>
+      return <button key={c} className={'ct' + (l ? ' on' : '')} onClick={() => open(c)}><b>{c}</b><p>{l ? `LIVE · ${mname(l)}` : n ? `Berikutnya ${fmtTime(n.start_at)} · ${mname(n)}` : 'Tidak ada pertandingan tersisa'}</p></button>
     })}</div>
-    {!names.length && <p className="muted">No courts yet.</p>}
+    {!names.length && <p className="muted">Belum ada lapangan.</p>}
   </div>
 }

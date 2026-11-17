@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { tn, rule, fmtTime, rd } from './util'
+import { tn, rule, fmtTime, rd, slotText } from './util'
 import { t } from './i18n'
 
 let NAVY = '#032a5f'
@@ -33,9 +33,10 @@ function download(svg, W, H, name) {
 }
 
 // Bracket drawn as an SVG picture (zoomable, downloadable as PNG, tap a match to edit when onPick is given)
-export function BracketView({ matches, onPick, title = 'Bracket', virtual }) {
+export function BracketView({ matches, onPick, title = 'Bracket', virtual, note }) {
   const [z, setZ] = useState(() => window.innerWidth < 640 ? .7 : 1), ref = useRef()
   NAVY = getComputedStyle(document.documentElement).getPropertyValue('--b').trim() || '#032a5f' // follows the brand colour from Settings
+  const tbd = t('TBD'), liveTxt = t('LIVE')
   const ko = matches.filter(m => m.round !== 'Group Stage' && m.round !== 'Third Place')
   const rounds = ORDER.filter(r => ko.some(m => m.round === r))
   const third = matches.find(m => m.round === 'Third Place')
@@ -53,22 +54,22 @@ export function BracketView({ matches, onPick, title = 'Bracket', virtual }) {
     const row = (t, s, i, dy) => {
       const win = done && t && m.winner === t.id
       return <g key={i}>
-        <text x={x + 14} y={y + dy + BH / 4 + 5} fontSize="13" fontFamily={FF} fontWeight={win ? 800 : 500} fontStyle={t ? 'normal' : 'italic'} fill={t ? NAVY : MUTE}>{cut((t ? tn(t) : (s || 'TBD')) + (win ? '  ✓' : ''), 25)}</text>
+        <text x={x + 14} y={y + dy + BH / 4 + 5} fontSize="13" fontFamily={FF} fontWeight={win ? 800 : 500} fontStyle={t ? 'normal' : 'italic'} fill={t ? NAVY : MUTE}>{cut((t ? tn(t) : (s || tbd)) + (win ? '  ✓' : ''), 25)}</text>
         <text x={x + BW - 14} y={y + dy + BH / 4 + 5} fontSize="13" fontFamily={FF} fontWeight="800" fill={NAVY} textAnchor="end">{score(m, i) || '–'}</text>
       </g>
     }
     return <g onClick={() => pick && onPick(m)} style={{ cursor: pick ? 'pointer' : 'default' }}>
       <rect x={x} y={y} width={BW} height={BH} rx="10" fill="#ffffff" stroke={live ? NAVY : LINE} strokeWidth={live ? 2.5 : 1.5} />
       <line x1={x} x2={x + BW} y1={y + BH / 2} y2={y + BH / 2} stroke={LINE} />
-      {row(m.t1, m.slot1, 0, 0)}{row(m.t2, m.slot2, 1, BH / 2)}
-      <text x={x + 2} y={y - 8} fontSize="10" fontFamily={FF} fill={MUTE}>{m.code || ''}{m.status === 'scheduled' && !m.virtual ? ` · ${fmtTime(m.start_at)}` : ''}{live ? ' · LIVE' : ''}</text>
+      {row(m.t1, slotText(m.slot1), 0, 0)}{row(m.t2, slotText(m.slot2), 1, BH / 2)}
+      <text x={x + 2} y={y - 8} fontSize="10" fontFamily={FF} fill={MUTE}>{m.code || ''}{m.status === 'scheduled' && !m.virtual ? ` · ${fmtTime(m.start_at)}` : ''}{live ? ' · ' + liveTxt : ''}</text>
     </g>
   }
   const tY = HH + body + 40
 
   return <div className="bwrap">
     <div className="btools">
-      <span className="muted">{virtual ? t('Projected from group standings') : onPick ? t('Tap a match to edit it') : ''}</span>
+      <span className="muted">{note || (virtual ? t('Projected from group standings') : onPick ? t('Tap a match to edit it') : '')}</span>
       <div className="bz"><button onClick={() => setZ(Math.max(.4, +(z - .1).toFixed(1)))}>−</button><span>{Math.round(z * 100)}%</span><button onClick={() => setZ(Math.min(1.6, +(z + .1).toFixed(1)))}>+</button></div>
       <button className="btn sm" onClick={() => download(ref.current, W, H, title.replace(/\W+/g, '-').toLowerCase() || 'bracket')}>{t('Download image')}</button>
     </div>

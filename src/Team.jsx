@@ -1,7 +1,7 @@
 import { useContext } from 'react'
 import { Ctx, Card, Feature } from './ui'
 import { table } from './standings'
-import { tn, fmtDate, fmtTime, rule, rd, share, waLink, matchUrl, genderLabel } from './util'
+import { tn, fmtDate, fmtTime, rule, rd, share, waLink, matchUrl, tourSub } from './util'
 import { isRace } from './score'
 import { t } from './i18n'
 import { PointLog, TurnCard } from './Public'
@@ -10,7 +10,7 @@ export function GroupTable({ g, teams, matches, hl }) {
   const { go } = useContext(Ctx)
   const rows = table(teams.filter(x => x.grp === g), matches)
   return <div className="gt"><h3>{t('Group')} {g}</h3><div className="scroll"><table className="tb">
-    <thead><tr><th>{t('TEAM')}</th><th>G</th><th>W-L-T</th><th>{t('DIFF')}</th><th>+M</th><th>P</th></tr></thead>
+    <thead><tr><th>{t('TEAM')}</th><th>{t('G')}</th><th>{t('W-L-T')}</th><th>{t('DIFF')}</th><th>{t('+M')}</th><th>{t('P')}</th></tr></thead>
     <tbody>{rows.map((r, i) => <tr key={r.t.id} className={hl === r.t.id ? 'me' : ''}><td>{i + 1}. <button className="tl" onClick={() => go('/team/' + r.t.id)}>{tn(r.t)}</button></td><td>{r.g}</td><td>{r.w}-{r.l}-{r.tie}</td><td>{r.diff}</td><td>{r.gw}</td><td>{r.pts}</td></tr>)}</tbody></table></div>
     <p className="muted tbn">{rows.manual ? t('Order set by the organisers.') : t('If level: wins, head-to-head, point difference, points scored.')}</p></div>
 }
@@ -34,7 +34,7 @@ export function TeamPage({ id, teams, matches, tours, back, ready, est = {} }) {
     <Back back={back} />
     <section className="banner">
       <div>
-        <small>{tour ? `${genderLabel(tour.gender)} · ${tour.level}` : ''}</small>
+        <small>{tour ? tourSub(tour) : ''}</small>
         <h1>{tn(team)}</h1>
         <div className="tmeta"><span>{team.player1} / {team.player2}</span><span>{t('Group')} {team.grp}</span><span>{mine.some(isRace) ? t('Points') : t('Games')} {gw}-{gl}</span></div>
       </div>

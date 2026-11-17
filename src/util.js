@@ -2,7 +2,7 @@ import { getLang, t } from './i18n'
 
 // ---- site configuration (set from Admin > Settings, applied at runtime) ----
 export const DEFAULT_COURTS = ['Court 1', 'Court 2', 'Court 3', 'Court 4']
-export const DEFAULTS = { name: 'HIPMI BONTANG PADEL CUP 2026', logo: '', color: '#032a5f', venue: 'Vamos Arena Fit', dates: '5 & 6 December 2026', event: {}, rankOverrides: {}, tz: 'Asia/Makassar', hour12: false, fmt: 'race6', golden: true, duration: 30, courts: [], autoLock: false }
+export const DEFAULTS = { name: 'HIPMI BONTANG PADEL CUP 2026', logo: '', color: '#032a5f', venue: 'Vamos Arena Fit', dates: '5 & 6 Desember 2026', event: {}, rankOverrides: {}, tz: 'Asia/Makassar', hour12: false, fmt: 'race6', golden: true, duration: 30, courts: [], autoLock: false }
 export const cfg = { tz: DEFAULTS.tz, hour12: false, name: DEFAULTS.name }
 export const setCfg = o => Object.assign(cfg, o)
 export const TZS = [['Asia/Jakarta', 'WIB (UTC+7)'], ['Asia/Makassar', 'WITA (UTC+8)'], ['Asia/Jayapura', 'WIT (UTC+9)'], ['Asia/Singapore', 'Singapore (UTC+8)'], ['UTC', 'UTC']]
@@ -38,12 +38,21 @@ export const fromLocal = v => {
 
 export const ini = n => (n || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 export const emailOf = u => `${u.trim().toLowerCase()}@courtline.app`
-export const GENDERS = ['Men', 'Women'] // stored values (the database only accepts these two)
-export const genderLabel = g => g === 'Men' ? "Men's" : g === 'Women' ? "Women's" : g
-// Tournament name + Men's/Women's (unless the name already says it, e.g. "BEGINNER MEN")
-export const tourLabel = x => !x ? '' : /\b(men|women|putra|putri|pria|wanita)\b/i.test(x.name || '') ? x.name : `${x.name} · ${genderLabel(x.gender)}`
-export const LEVELS = ['Bronze', 'Lower Bronze', 'Beginner']
-export const levelOptions = cur => !cur || LEVELS.includes(cur) ? LEVELS : [...LEVELS, cur] // an older tournament keeps its old level in the list
+export const GENDERS = ['Men', 'Women', 'Mixed'] // nilai yang disimpan di database
+export const genderLabel = g => g === 'Men' ? t("Men's") : g === 'Women' ? t("Women's") : g === 'Mixed' ? t('Mixed') : g
+// Nama kategori + Putra/Putri (kecuali nama sudah menyebutkannya, mis. "BEGINNER MEN")
+export const tourLabel = x => !x ? '' : /\b(men|women|putra|putri|pria|wanita|mixed|campuran)\b/i.test(x.name || '') ? x.name : `${x.name} · ${genderLabel(x.gender)}`
+// Keterangan kecil di bawah nama kategori: "Putra · Bronze" (tingkat boleh kosong)
+export const tourSub = x => !x ? '' : [genderLabel(x.gender), x.level && x.level.toLowerCase() !== (x.name || '').toLowerCase() ? x.level : ''].filter(Boolean).join(' · ')
+export const LEVELS = ['Bronze', 'Lower Bronze', 'Beginner', 'Amatir'] // hanya saran; admin bebas mengetik tingkat sendiri
+// Terjemahan label slot bagan: "Winner SF1" -> "Pemenang SF1", "1st Group A" -> "Juara 1 Grup A"
+export const slotText = s => {
+  if (!s) return s
+  let m = /^(Winner|Loser) (\w+)$/.exec(s)
+  if (m) return `${t(m[1])} ${m[2]}`
+  m = /^(\d+)\w\w Group (\w+)$/.exec(s)
+  return m ? t('Rank {0} Group {1}', m[1], m[2]) : s
+}
 export const FORMATS = {
   race6: { best_of: 1, target: 6, scoring: 'race', label: 'Race to 6 points' },
   race5: { best_of: 1, target: 5, scoring: 'race', label: 'Race to 5 points' },
@@ -55,7 +64,7 @@ export const FORMATS = {
   ft7: { best_of: 1, target: 7, scoring: 'tennis', label: 'First to 7 games' }
 }
 export const SELECTABLE = ['race6', 'race5', 'race4']
-export const fmtOptions = cur => (!cur || SELECTABLE.includes(cur) ? SELECTABLE : [...SELECTABLE, cur]).map(k => [k, FORMATS[k].label])
+export const fmtOptions = cur => (!cur || SELECTABLE.includes(cur) ? SELECTABLE : [...SELECTABLE, cur]).map(k => [k, t(FORMATS[k].label)])
 export const fmtKey = m => Object.keys(FORMATS).find(k => FORMATS[k].best_of === m.best_of && FORMATS[k].target === (m.target || null) && FORMATS[k].scoring === (m.scoring || 'tennis')) || 'race6'
 export const fmtRow = k => { const F = FORMATS[k] || FORMATS.race6; return { best_of: F.best_of, target: F.target, scoring: F.scoring } }
 export const rule = m => m.scoring === 'race' ? t('Race to {0} points', m.target) : m.target ? t('First to {0}', m.target) : m.best_of === 1 ? t('1 set') : t('Best of 3')
@@ -66,7 +75,7 @@ export const clash = (a, b) => new Date(a.start_at).getTime() < endOf(b) && new 
 
 // ---- sharing: every match has its own link ----
 export const matchUrl = m => `${location.origin}${location.pathname}#/match/${m.id}`
-const shareText = m => `${tn(m.t1) || 'TBD'} vs ${tn(m.t2) || 'TBD'} · ${m.court} · ${fmtTime(m.start_at)}`
+const shareText = m => `${tn(m.t1) || slotText(m.slot1) || t('TBD')} ${t('vs')} ${tn(m.t2) || slotText(m.slot2) || t('TBD')} · ${m.court} · ${fmtTime(m.start_at)}`
 export const waLink = m => `https://wa.me/?text=${encodeURIComponent(shareText(m) + ' ' + matchUrl(m))}`
 export const share = m => {
   const text = shareText(m), url = matchUrl(m)
@@ -87,45 +96,30 @@ export const scoreText = m => {
   return s.join('  ') + (m.wo ? '  WO' : '')
 }
 
-// Reads team rows pasted from Excel / Google Sheets or loaded from a CSV file.
-// Columns: player1, player2, team name (optional), group (optional, default A).
-// Accepts comma, semicolon or tab separators, with or without a header row.
-const split = (line, d) => {
-  const out = []; let cur = '', q = false
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]
-    if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++ } else q = false } else cur += c }
-    else if (c === '"') q = true
-    else if (c === d) { out.push(cur.trim()); cur = '' }
-    else cur += c
-  }
-  out.push(cur.trim()); return out
-}
+// Membaca baris tim dari file Excel (array of array). Kolom: Pemain 1, Pemain 2, Nama Tim (opsional), Grup (opsional, default A).
 const HEAD = {
   player1: ['player1', 'player 1', 'pemain1', 'pemain 1', 'p1'],
   player2: ['player2', 'player 2', 'pemain2', 'pemain 2', 'p2'],
   name: ['name', 'team', 'team name', 'teamname', 'nama', 'nama tim', 'tim'],
   grp: ['group', 'grup', 'grp']
 }
-export function parseTeams(text) {
-  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim())
-  let delim = null, off = 0
-  if (lines.length && /^sep=.$/i.test(lines[0].trim())) { delim = lines.shift().trim()[4]; off++ }
+const norm = x => String(x || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+export function parseTeamRows(data) {
+  const lines = (data || []).map((r, i) => ({ r: r || [], n: i + 1 })).filter(x => x.r.some(c => String(c || '').trim()))
   if (!lines.length) return { rows: [], errors: [] }
-  if (!delim) delim = ['\t', ';', ','].map(d => [d, lines[0].split(d).length]).sort((a, b) => b[1] - a[1])[0][0]
-  const first = split(lines[0], delim).map(x => x.toLowerCase())
   const idx = { player1: 0, player2: 1, name: 2, grp: 3 }
+  const first = lines[0].r.map(norm)
   if (first.some(x => Object.values(HEAD).flat().includes(x))) {
     Object.keys(HEAD).forEach(k => { idx[k] = first.findIndex(x => HEAD[k].includes(x)) })
-    lines.shift(); off++
+    lines.shift()
   }
   const rows = [], errors = []
-  lines.forEach((line, i) => {
-    const c = split(line, delim), cell = k => (idx[k] >= 0 ? c[idx[k]] || '' : '').trim()
-    const p1 = cell('player1'), p2 = cell('player2'), n = i + off + 1
-    if (!p1 || !p2) return errors.push(`Row ${n}: both player names are required`)
+  lines.forEach(({ r, n }) => {
+    const cell = k => (idx[k] >= 0 ? String(r[idx[k]] ?? '') : '').trim()
+    const p1 = cell('player1'), p2 = cell('player2')
+    if (!p1 || !p2) return errors.push(t('Row {0}: both player names are required', n))
     const gm = /^(?:GROUP|GRUP)?\s*([A-Z])$/.exec((cell('grp') || 'A').toUpperCase())
-    if (!gm) return errors.push(`Row ${n}: group must be a single letter (A, B, C…)`)
+    if (!gm) return errors.push(t('Row {0}: group must be a single letter (A, B, C…)', n))
     rows.push({ player1: p1, player2: p2, name: cell('name') || `${p1} x ${p2}`, grp: gm[1] })
   })
   return { rows, errors }

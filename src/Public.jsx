@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { tn, fmtDay, fmtDate, fmtTime, clock, rd, scoreText, genderLabel, hasFav } from './util'
+import { tn, fmtDay, fmtDate, fmtTime, clock, rd, scoreText, tourSub, hasFav, slotText } from './util'
 import { nextFor } from './turn'
 import { t } from './i18n'
 
@@ -9,7 +9,7 @@ const round5 = ms => Math.round(ms / 3e5) * 3e5
 export function TurnCard({ team, matches, est, go }) {
   const nx = nextFor(team.id, matches, est)
   const opp = nx && (nx.m.team1 === team.id ? nx.m.t2 || null : nx.m.t1 || null)
-  const oppName = nx && (opp ? tn(opp) : (nx.m.team1 === team.id ? nx.m.slot2 : nx.m.slot1) || t('TBD'))
+  const oppName = nx && (opp ? tn(opp) : slotText(nx.m.team1 === team.id ? nx.m.slot2 : nx.m.slot1) || t('TBD'))
   const at = nx && new Date(round5(nx.e.start)), today = nx && fmtDay(at) === fmtDay(new Date())
   const late = nx && nx.e.late ? Math.round((nx.e.start - new Date(nx.m.start_at).getTime()) / 6e4 / 5) * 5 : 0
   return <div className={'turn' + (nx && nx.m.status === 'live' ? ' on' : '')}>
@@ -41,7 +41,7 @@ export function TeamsPage({ teams, tours, matches, favs, toggle, go }) {
     <h3 className="sec">{t('Participants')} <span className="chip">{list.length} {t('teams')} · {list.length * 2} {t('players')}</span></h3>
     <div className="tools"><input className="search" placeholder={t('Search team, player or category…')} value={q} onChange={e => setQ(e.target.value)} /></div>
     {secs.length ? secs.map(({ tr, rows }) => <div key={tr.id} className="tsec">
-      <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{genderLabel(tr.gender)}</span><span className="chip">{tr.level}</span><span>{rows.length} {t('teams')}</span></div></div>
+      <div className="th"><h2>{tr.name}</h2><div className="tmeta"><span className="chip">{tourSub(tr)}</span><span>{rows.length} {t('teams')}</span></div></div>
       <div className="card list">{rows.map(x => <div className="prow" key={x.id}>
         <button className={'star' + (favs.includes(x.id) ? ' on' : '')} aria-pressed={favs.includes(x.id)} aria-label={t('Add to favourites')} onClick={() => toggle(x.id)}>{favs.includes(x.id) ? '★' : '☆'}</button>
         <div className="pm"><button className="tl" onClick={() => go('/team/' + x.id)}>{tn(x)}</button><small>{x.player1} / {x.player2}</small></div>
@@ -67,7 +67,7 @@ export function CourtGrid({ matches, courts, est, favs, go }) {
         if (!m) return <div key={s + c} className="cgc empty">–</div>
         const e = est[m.id], late = e && e.late && m.status === 'scheduled'
         return <button key={s + c} className={'cgc' + (m.status === 'live' ? ' live' : m.status === 'finished' ? ' done' : '') + (hasFav(m, favs) ? ' fav' : '')} onClick={() => go('/match/' + m.id)}>
-          <b>{tn(m.t1) || m.slot1 || t('TBD')}</b><b>{tn(m.t2) || m.slot2 || t('TBD')}</b>
+          <b>{tn(m.t1) || slotText(m.slot1) || t('TBD')}</b><b>{tn(m.t2) || slotText(m.slot2) || t('TBD')}</b>
           <small>{m.status === 'scheduled' ? `${rd(m.round)}${late ? ' · ~' + fmtTime(new Date(round5(e.start))) : ''}` : `${m.status === 'live' ? t('LIVE') + ' · ' : ''}${scoreText(m).replace('*', '').replace('  WO', ' WO')}`}</small>
         </button>
       })])}

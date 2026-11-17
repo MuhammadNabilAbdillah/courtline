@@ -63,33 +63,33 @@ export function InfoPage({ site, matches, onTv }) {
   </>
 }
 
-// Admin: edit what the info page shows
+// Admin: atur isi halaman Info
 export function EventSettings({ settings, save }) {
   const ev = settings.event || {}
   const [f, setF] = useState({ address: ev.address || '', mapUrl: ev.mapUrl || '', rules: ev.rules || '', contacts: ev.contacts || [], program: ev.program || [] })
   const upd = (k, i, p) => setF({ ...f, [k]: f[k].map((x, j) => (j === i ? { ...x, ...p } : x)) })
   const del = (k, i) => setF({ ...f, [k]: f[k].filter((_, j) => j !== i) })
-  return <div className="panel"><h3>Event info page</h3>
-    <p className="muted">Shown on the Info tab. The venue name comes from the Site panel. Match format and tie-break rules are added automatically.</p>
+  return <div className="panel"><h3>Halaman info acara</h3>
+    <p className="muted">Tampil di tab Info untuk penonton. Nama lokasi diambil dari Tampilan Situs di atas. Format pertandingan dan aturan seri ditambahkan otomatis.</p>
     <div className="fm">
-      <input className="wide" placeholder="Venue address (optional)" value={f.address} onChange={e => setF({ ...f, address: e.target.value })} />
-      <input className="wide" placeholder="Google Maps link (optional, otherwise a search for the venue name is used)" value={f.mapUrl} onChange={e => setF({ ...f, mapUrl: e.target.value })} />
+      <input className="wide" placeholder="Alamat lokasi (opsional)" value={f.address} onChange={e => setF({ ...f, address: e.target.value })} />
+      <input className="wide" placeholder="Link Google Maps (opsional, jika kosong dicari lewat nama lokasi)" value={f.mapUrl} onChange={e => setF({ ...f, mapUrl: e.target.value })} />
     </div>
-    <label className="fl">Extra rules (one per line)<textarea className="ta" rows={5} value={f.rules} onChange={e => setF({ ...f, rules: e.target.value })} placeholder={'e.g. Teams must report 15 minutes before their match.\nShoes for padel courts are required.'} /></label>
-    <h4 className="sub-h">Event programme</h4>
+    <label className="fl">Aturan tambahan (satu per baris)<textarea className="ta" rows={5} value={f.rules} onChange={e => setF({ ...f, rules: e.target.value })} placeholder={'mis. Tim wajib lapor 15 menit sebelum pertandingan.\nWajib memakai sepatu khusus lapangan padel.'} /></label>
+    <h4 className="sub-h">Rangkaian acara</h4>
     {f.program.map((p, i) => <div className="fm" key={i}>
       <input type="date" value={p.date || ''} onChange={e => upd('program', i, { date: e.target.value })} />
       <input type="time" value={p.time || ''} onChange={e => upd('program', i, { time: e.target.value })} />
-      <input className="wide" placeholder="e.g. Opening ceremony" value={p.title || ''} onChange={e => upd('program', i, { title: e.target.value })} />
-      <button className="btn o sm danger" onClick={() => del('program', i)}>Remove</button></div>)}
-    <div className="ctrl"><button className="btn o sm" onClick={() => setF({ ...f, program: [...f.program, { date: (f.program[f.program.length - 1] || {}).date || '', time: '', title: '' }] })}>+ Add programme item</button></div>
-    <h4 className="sub-h">Committee contacts</h4>
+      <input className="wide" placeholder="mis. Upacara pembukaan" value={p.title || ''} onChange={e => upd('program', i, { title: e.target.value })} />
+      <button className="btn o sm danger" onClick={() => del('program', i)}>Hapus</button></div>)}
+    <div className="ctrl"><button className="btn o sm" onClick={() => setF({ ...f, program: [...f.program, { date: (f.program[f.program.length - 1] || {}).date || '', time: '', title: '' }] })}>+ Tambah acara</button></div>
+    <h4 className="sub-h">Kontak panitia</h4>
     {f.contacts.map((c, i) => <div className="fm" key={i}>
-      <input placeholder="Name" value={c.name || ''} onChange={e => upd('contacts', i, { name: e.target.value })} />
-      <input placeholder="Role, e.g. Match director" value={c.role || ''} onChange={e => upd('contacts', i, { role: e.target.value })} />
-      <input placeholder="Phone / WhatsApp, e.g. 0812…" inputMode="tel" value={c.phone || ''} onChange={e => upd('contacts', i, { phone: e.target.value })} />
-      <button className="btn o sm danger" onClick={() => del('contacts', i)}>Remove</button></div>)}
-    <div className="ctrl"><button className="btn o sm" onClick={() => setF({ ...f, contacts: [...f.contacts, { name: '', role: '', phone: '' }] })}>+ Add contact</button></div>
-    <div className="ctrl"><button className="btn" onClick={() => save({ event: { address: f.address.trim(), mapUrl: f.mapUrl.trim(), rules: f.rules.trim(), contacts: f.contacts.filter(c => (c.name || '').trim() || (c.phone || '').trim()), program: f.program.filter(p => p.date && (p.title || '').trim()) } }, 'Updated event info page')}>Save event info</button></div>
+      <input placeholder="Nama" value={c.name || ''} onChange={e => upd('contacts', i, { name: e.target.value })} />
+      <input placeholder="Jabatan, mis. Ketua pelaksana" value={c.role || ''} onChange={e => upd('contacts', i, { role: e.target.value })} />
+      <input placeholder="Telepon / WhatsApp, mis. 0812…" inputMode="tel" value={c.phone || ''} onChange={e => upd('contacts', i, { phone: e.target.value })} />
+      <button className="btn o sm danger" onClick={() => del('contacts', i)}>Hapus</button></div>)}
+    <div className="ctrl"><button className="btn o sm" onClick={() => setF({ ...f, contacts: [...f.contacts, { name: '', role: '', phone: '' }] })}>+ Tambah kontak</button></div>
+    <div className="ctrl"><button className="btn" onClick={() => save({ event: { address: f.address.trim(), mapUrl: f.mapUrl.trim(), rules: f.rules.trim(), contacts: f.contacts.filter(c => (c.name || '').trim() || (c.phone || '').trim()), program: f.program.filter(p => p.date && (p.title || '').trim()) } }, 'Mengubah halaman info acara')}>Simpan info acara</button></div>
   </div>
 }

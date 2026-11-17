@@ -1,426 +1,42 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { supabase, SB_URL, SB_KEY } from './supabase'
-import { settle, isRace } from './score'
-import { pointPatch, undoPatch, logAdd, logReset } from './engine'
-import { enqueue, overlay, useOutbox, setSyncHook } from './outbox'
+import { useOutbox, overlay, setSyncHook } from './outbox'
 import { ScorerHome, SyncBadge } from './Scorer'
 import { EventSettings } from './Event'
 import { StandingsPanel } from './AdminRank'
-import { Card } from './ui'
 import { resolve } from './standings'
-import { BracketView } from './Bracket'
-import { emailOf, GENDERS, genderLabel, levelOptions, FORMATS, fmtOptions, fmtKey, fmtRow, clash, tn, parseTeams, fmtDate, fmtTime, activeCourts, scoreText } from './util'
-import { log, mname, CourtSelect, WalkoverBox, NoteBox, Reorder, ExportPanel, HistoryPanel, SiteSettings, TimeSettings, RuleSettings, CourtsPanel, BackupPanel } from './AdminExtra'
+import { emailOf, tourSub, fmtDate, fmtTime } from './util'
+import { log, ExportPanel, HistoryPanel, SiteSettings, TimeSettings, RuleSettings, CourtsPanel, BackupPanel } from './AdminExtra'
 import { Dashboard } from './AdminDash'
-import { DT, Overview, FixtureGenerator, DrawGroups, SystemCheck, woSets } from './AdminTools'
-
-const GROUPS = ['A', 'B', 'C', 'D', 'E', 'F']
-const ROUNDS = ['Group Stage', 'Round of 16', 'Quarterfinal', 'Semifinal', 'Third Place', 'Final']
+import { SystemCheck } from './AdminTools'
+import { Matches } from './AdminMatches'
+import { Teams, Categories } from './AdminTeams'
+import { BracketPage } from './AdminBracket'
 
 function Login({ onBack }) {
   const [u, setU] = useState(''), [p, setP] = useState(''), [show, setShow] = useState(false), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
   const go = async e => {
     e.preventDefault(); setBusy(true); setErr('')
     const { error } = await supabase.auth.signInWithPassword({ email: emailOf(u), password: p })
-    if (error) setErr(error.message === 'Invalid login credentials' ? 'Incorrect username or password.' : error.message)
+    if (error) setErr(error.message === 'Invalid login credentials' ? 'Nama pengguna atau password salah.' : error.message)
     setBusy(false)
   }
   return <div className="login">
     <div className="lp">
       <div className="logo">Court<span>line</span></div>
-      <div className="lpm"><h1>Run match day<br />with confidence.</h1><p>Schedule matches, update scores point by point and keep every court in sync — live.</p></div>
+      <div className="lpm"><h1>Kelola hari pertandingan<br />dengan tenang.</h1><p>Atur jadwal, catat skor poin demi poin, dan jaga semua lapangan tetap sinkron secara langsung.</p></div>
     </div>
     <form className="lf" onSubmit={go}>
-      <button type="button" className="link" onClick={onBack}>← Back to scoreboard</button>
-      <h2>Welcome back</h2><p className="muted">Sign in to the admin console.</p>
-      <label className="fl">Username<input autoCapitalize="none" autoComplete="username" required value={u} onChange={e => setU(e.target.value)} placeholder="admin" /></label>
+      <button type="button" className="link" onClick={onBack}>← Kembali ke halaman penonton</button>
+      <h2>Selamat datang</h2><p className="muted">Masuk ke konsol admin.</p>
+      <label className="fl">Nama pengguna<input autoCapitalize="none" autoComplete="username" required value={u} onChange={e => setU(e.target.value)} placeholder="admin" /></label>
       <label className="fl">Password<div className="pw"><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={p} onChange={e => setP(e.target.value)} placeholder="••••••••" />
-        <button type="button" className="link" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button></div></label>
+        <button type="button" className="link" onClick={() => setShow(!show)}>{show ? 'Sembunyikan' : 'Lihat'}</button></div></label>
       {err && <div className="err">{err}</div>}
-      <button className="btn big" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-      <small className="muted">Authorised staff only.</small>
+      <button className="btn big" disabled={busy}>{busy ? 'Sedang masuk…' : 'Masuk'}</button>
+      <small className="muted">Khusus panitia yang berwenang.</small>
     </form>
-  </div>
-}
-
-function EditForm({ m, tm, courts, onSave, onCancel, onDelete }) {
-  const fk = fmtKey(m)
-  const [f, setF] = useState({ team1: m.team1 || '', team2: m.team2 || '', round: m.round, court: m.court, start_at: m.start_at, duration: m.duration || 60, fmt: fk, golden: m.golden })
-  const set = k => e => setF({ ...f, [k]: e.target.value })
-  return <div className="editbox">
-    <h4>Edit match</h4>
-    <div className="fm">
-      {['team1', 'team2'].map(k => <select key={k} value={f[k]} onChange={set(k)}><option value="">{m['slot' + k.slice(-1)] || 'TBD'}</option>{tm.map(t => <option key={t.id} value={t.id}>{tn(t)}</option>)}</select>)}
-      <select value={f.round} onChange={set('round')}>{ROUNDS.map(r => <option key={r}>{r}</option>)}</select>
-      <CourtSelect value={f.court} courts={courts} onChange={v => setF({ ...f, court: v })} />
-      <select value={f.fmt} onChange={set('fmt')}>{fmtOptions(fk).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-      {FORMATS[f.fmt].scoring !== 'race' && <select value={f.golden} onChange={e => setF({ ...f, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>}
-      <select value={f.duration} onChange={set('duration')}>{[...new Set([15, 20, 25, 30, 40, 45, 60, 75, 90, 120, +f.duration].filter(Boolean))].sort((a, b) => a - b).map(x => <option key={x} value={x}>{x} min</option>)}</select>
-      <div className="full"><DT value={f.start_at} onChange={v => setF({ ...f, start_at: v })} /></div>
-    </div>
-    <div className="ctrl"><button className="btn sm" onClick={() => onSave(f)}>Save changes</button><button className="btn o sm" onClick={onCancel}>Cancel</button><button className="btn o sm danger" onClick={onDelete}>Delete match</button></div>
-  </div>
-}
-
-// Manual score correction: edit finished sets, the current game and the current points.
-function ScoreEdit(props) { return isRace(props.m) ? <RaceScoreEdit {...props} /> : <TennisScoreEdit {...props} /> }
-
-// Race to N points: just the two scores
-function RaceScoreEdit({ m, onSave, onCancel }) {
-  const start = m.status === 'finished' && m.sets[0] ? m.sets[0] : m.p
-  const [p, setP] = useState(start.map(String))
-  const names = [tn(m.t1) || 'Team A', tn(m.t2) || 'Team B']
-  return <div className="editbox">
-    <h4>Correct score (race to {m.target})</h4>
-    <div className="se">
-      <div className="sr head"><span /><b>{names[0]}</b><b>{names[1]}</b><span /></div>
-      <div className="sr"><span>Points</span>{[0, 1].map(j => <input key={j} type="number" inputMode="numeric" min="0" max={m.target} value={p[j]} onChange={e => setP(p.map((x, k) => k === j ? e.target.value : x))} />)}<span /></div>
-    </div>
-    <p className="muted">The first team to reach {m.target} points wins. Enter {m.target} for the winner to finish the match, or lower scores to keep it live.</p>
-    <div className="ctrl"><button className="btn sm" onClick={() => onSave({ race: true, p: p.map(x => Math.max(0, parseInt(x, 10) || 0)) })}>Save score</button><button className="btn o sm" onClick={onCancel}>Cancel</button></div>
-  </div>
-}
-
-function TennisScoreEdit({ m, onSave, onCancel }) {
-  const [sets, setSets] = useState(m.sets.map(s => [String(s[0]), String(s[1])]))
-  const [g, setG] = useState(m.g.map(String)), [p, setP] = useState(m.p.map(String))
-  const num = v => Math.max(0, Math.min(99, parseInt(v, 10) || 0))
-  const setS = (i, j, v) => setSets(sets.map((s, k) => k === i ? s.map((x, l) => l === j ? v : x) : s))
-  const names = [tn(m.t1) || 'Team A', tn(m.t2) || 'Team B']
-  const two = (arr, fn) => [0, 1].map(j => <input key={j} type="number" inputMode="numeric" min="0" value={arr[j]} onChange={e => fn(j, e.target.value)} />)
-  return <div className="editbox">
-    <h4>Correct score</h4>
-    <div className="se">
-      <div className="sr head"><span /><b>{names[0]}</b><b>{names[1]}</b><span /></div>
-      {sets.map((s, i) => <div className="sr" key={i}><span>Set {i + 1}</span>{two(s, (j, v) => setS(i, j, v))}
-        <button className="btn o sm danger" aria-label={`Remove set ${i + 1}`} onClick={() => setSets(sets.filter((_, k) => k !== i))}>×</button></div>)}
-      <div className="sr"><span>Games</span>{two(g, (j, v) => setG(g.map((x, k) => k === j ? v : x)))}<span /></div>
-      <div className="sr"><span>Points</span>{two(p, (j, v) => setP(p.map((x, k) => k === j ? v : x)))}<span /></div>
-    </div>
-    <p className="muted">Points: 0, 1, 2, 3 = 0, 15, 30, 40 (in a tie-break, enter the real points). Games and points are cleared automatically when the sets already decide the winner.</p>
-    <div className="ctrl">
-      {sets.length < 5 && <button className="btn o sm" onClick={() => setSets([...sets, ['0', '0']])}>+ Add set</button>}
-      <button className="btn sm" onClick={() => onSave({ sets: sets.map(s => [num(s[0]), num(s[1])]), g: g.map(num), p: p.map(num) })}>Save score</button>
-      <button className="btn o sm" onClick={onCancel}>Cancel</button>
-    </div>
-  </div>
-}
-
-function Matches({ tm, ms, tid, admin, run, load, settings, view = 'control', focusId, onFocus, go }) {
-  const def = () => { const d = new Date(); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return d.toISOString() }
-  const courts = activeCourts(settings)
-  const [mf, setMf] = useState({ team1: '', team2: '', court: courts[0] || 'Court 1', round: 'Group Stage', fmt: settings.fmt, golden: settings.golden, start_at: def(), duration: settings.duration })
-  const [dl, setDl] = useState(15), [gf, setGf] = useState(settings.fmt), [editing, setEditing] = useState(null), [scoring, setScoring] = useState(null), [wob, setWob] = useState(null), [noting, setNoting] = useState(null)
-  useEffect(() => { setMf(f => ({ ...f, fmt: settings.fmt, golden: settings.golden, duration: settings.duration })); setGf(settings.fmt) }, [settings.fmt, settings.golden, settings.duration])
-  const hasKO = ms.some(m => m.round !== 'Group Stage')
-  const upd = (m, v, act, detail) => run(supabase.from('matches').update(v).eq('id', m.id), act, detail)
-  const lockOn = settings.autoLock ? { locked: true } : {}
-  const diff = (m, v) => [v.court && v.court !== m.court && `court ${m.court} → ${v.court}`, v.start_at && v.start_at !== m.start_at && `time ${fmtTime(m.start_at)} → ${fmtTime(v.start_at)}`,
-    v.round && v.round !== m.round && `round ${m.round} → ${v.round}`, (('team1' in v && v.team1 !== m.team1) || ('team2' in v && v.team2 !== m.team2)) && 'teams changed'].filter(Boolean).join(', ')
-  const warn = (c, ex = [c.id]) => ms.filter(o => !ex.includes(o.id) && o.status !== 'finished' && clash(o, c) && (o.court === c.court || [o.team1, o.team2].some(x => x && [c.team1, c.team2].includes(x))))
-  const ask = c => { const w = warn(c); return !w.length || confirm(`Clash: ${w.length} match(es) overlap on the same court or with the same team. Continue anyway?`) }
-
-  const add = e => {
-    e.preventDefault()
-    if (mf.team1 === mf.team2) return alert('Pick two different teams')
-    const row = { tournament_id: tid, team1: mf.team1, team2: mf.team2, court: mf.court, round: mf.round, start_at: mf.start_at, duration: +mf.duration, golden: mf.golden, ...fmtRow(mf.fmt) }
-    if (ask(row)) run(supabase.from('matches').insert(row), 'Scheduled match', `${tn(tm.find(x => x.id === mf.team1))} vs ${tn(tm.find(x => x.id === mf.team2))} · ${row.court} · ${fmtTime(row.start_at)}`)
-  }
-  const edit = (m, v, act = 'Edited match') => { if (ask({ ...m, ...v })) upd(m, v, act, `${mname(m)}: ${diff(m, v)}`); else load() }
-  const swap = async (a, b) => {
-    const na = { start_at: b.start_at, court: b.court }, nb = { start_at: a.start_at, court: a.court }, w = [...warn({ ...a, ...na }, [a.id, b.id]), ...warn({ ...b, ...nb }, [a.id, b.id])]
-    if (w.length && !confirm(`Clash: ${w.length} match(es) would overlap on the same court or with the same team. Continue anyway?`)) return
-    const rs = await Promise.all([supabase.from('matches').update(na).eq('id', a.id), supabase.from('matches').update(nb).eq('id', b.id)]), er = rs.find(r => r.error)
-    if (er) alert(er.error.message); else log('Swapped match times', `${mname(a)} ⇄ ${mname(b)}`)
-    load()
-  }
-  const dup = async m => {
-    const row = { tournament_id: m.tournament_id, court: m.court, round: m.round, start_at: new Date(+new Date(m.start_at) + (m.duration || 60) * 6e4).toISOString(), duration: m.duration || 60, golden: m.golden, best_of: m.best_of, target: m.target, scoring: m.scoring || 'tennis' }
-    const { data, error } = await supabase.from('matches').insert(row).select().single()
-    if (error) return alert(error.message)
-    log('Duplicated match', `${mname(m)} (same rules, next time slot, teams left blank)`); await load(); pickMatch(data)
-  }
-  const lock = (m, on) => upd(m, { locked: on }, on ? 'Locked match' : 'Unlocked match', mname(m))
-  const lockAll = async () => {
-    const list = ms.filter(m => m.status === 'finished' && !m.locked)
-    if (!list.length || !confirm(`Lock ${list.length} finished match(es)? Their results can no longer change until an admin unlocks them.`)) return
-    const rs = await Promise.all(list.map(m => supabase.from('matches').update({ locked: true }).eq('id', m.id))), er = rs.find(r => r.error)
-    if (er) alert(er.error.message); else log('Locked finished matches', `${list.length} match(es)`)
-    load()
-  }
-  const walkover = (m, w) => {
-    if (!confirm(`Record a walkover? ${tn(w ? m.t2 : m.t1)} wins.`)) return
-    upd(m, { status: 'finished', winner: w ? m.team2 : m.team1, wo: true, sets: woSets(m, w), g: [0, 0], p: [0, 0], history: [...m.history.slice(-30), { sets: m.sets, g: m.g, p: m.p }], ...lockOn }, 'Walkover', `${mname(m)}: ${tn(w ? m.t2 : m.t1)} wins`)
-    setWob(null)
-  }
-  const saveNotes = (m, v) => { upd(m, v, 'Updated referee/notes', mname(m)); setNoting(null) }
-  const point = (m, t) => {
-    if (m.status !== 'live') return
-    const { patch, fin, sc } = pointPatch(m, t, settings.autoLock)
-    enqueue(m, patch) // applied at once, sent in the background (kept on the phone if the signal drops)
-    if (fin) log('Match finished', `${mname(m)}: ${sc}`)
-  }
-  const saveRace = (m, v) => {
-    const [a, b] = v.p, hi = Math.max(a, b), done = hi === m.target, w = a > b ? 0 : 1
-    if (hi > m.target) return alert(`In a race to ${m.target}, no team can have more than ${m.target} points.`)
-    if (done && a === b) return alert('The scores cannot be tied at the target.')
-    if (!confirm(done ? `Save the corrected score? ${tn(w ? m.t2 : m.t1)} will be the winner.` : 'Save the corrected score? The match will continue as live.')) return
-    const nx = { ...m, sets: done ? [[a, b]] : [], p: done ? [0, 0] : [a, b], g: [0, 0], status: done ? 'finished' : 'live', wo: false }
-    upd(m, { sets: nx.sets, g: [0, 0], p: nx.p, history: [...m.history.slice(-30), { sets: m.sets, g: m.g, p: m.p }], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}), ...logAdd(m, { t: null, at: Date.now(), sc: scoreText(nx).replace('*', ''), note: 'Score corrected' }) },
-      'Corrected score', `${mname(m)}: ${scoreText(m) || '0-0'} → ${scoreText(nx) || '0-0'}`)
-    setScoring(null)
-  }
-  const saveScore = (m, v) => {
-    if (v.race) return saveRace(m, v)
-    const w = settle(v.sets, m.best_of), done = w !== null
-    const msg = done
-      ? `Save the corrected score? ${tn(w ? m.t2 : m.t1)} will be the winner.${m.status === 'finished' ? ' Knockout slots that were already filled are not changed automatically.' : ''}`
-      : 'Save the corrected score? The match will continue as live.'
-    if (!confirm(msg)) return
-    const cur = { sets: m.sets, g: m.g, p: m.p }
-    const nx = { ...m, sets: v.sets, g: done ? [0, 0] : v.g, status: done ? 'finished' : 'live', wo: false }
-    upd(m, { sets: v.sets, g: nx.g, p: done ? [0, 0] : v.p, history: [...m.history.slice(-30), cur], status: nx.status, winner: done ? (w ? m.team2 : m.team1) : null, wo: false, ...(done ? lockOn : {}), ...logAdd(m, { t: null, at: Date.now(), sc: scoreText(nx).replace('*', ''), note: 'Score corrected' }) },
-      'Corrected score', `${mname(m)}: ${scoreText(m) || '0-0'} → ${scoreText(nx) || '0-0'}`)
-    setScoring(null)
-  }
-  const undo = m => { const u = undoPatch(m); if (u) { enqueue(m, u); log('Undo', mname(m)) } }
-  const delay = async () => {
-    const list = ms.filter(m => m.status === 'scheduled')
-    if (!list.length || !confirm(`Move ${list.length} upcoming match(es) ${dl} minutes later?`)) return
-    await Promise.all(list.map(m => supabase.from('matches').update({ start_at: new Date(+new Date(m.start_at) + dl * 6e4).toISOString() }).eq('id', m.id)))
-    log('Delayed matches', `${list.length} match(es) +${dl} min`); load()
-  }
-  const save = (m, f) => {
-    const v = { team1: f.team1 || null, team2: f.team2 || null, round: f.round, court: f.court, start_at: f.start_at, duration: +f.duration, golden: f.golden, ...fmtRow(f.fmt) }
-    if (v.team1 && v.team1 === v.team2) return alert('Pick two different teams')
-    const changed = v.team1 !== m.team1 || v.team2 !== m.team2 || v.best_of !== m.best_of || (v.target || null) !== (m.target || null) || v.scoring !== (m.scoring || 'tennis') || v.golden !== m.golden
-    if (m.status !== 'scheduled' && changed) {
-      if (!confirm('Changing teams or scoring rules resets the score of this match. Continue?')) return
-      Object.assign(v, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false, ...logReset(m) })
-    }
-    if (!ask({ ...m, ...v })) return
-    upd(m, v, 'Edited match', `${mname(m)}: ${diff(m, v) || 'rules'}${v.status === 'scheduled' && m.status !== 'scheduled' ? ' (score reset)' : ''}`); setEditing(null)
-  }
-  const del = m => confirm(`Delete match ${tn(m.t1) || m.slot1 || 'TBD'} vs ${tn(m.t2) || m.slot2 || 'TBD'}? This cannot be undone.`) && run(supabase.from('matches').delete().eq('id', m.id), 'Deleted match', mname(m)).then(() => setEditing(null))
-  const pickMatch = m => { setEditing(m.id); setTimeout(() => document.getElementById('m-' + m.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50) }
-  const genKO = () => {
-    const gs = [...new Set(tm.map(t => t.grp))].sort(), c1 = courts[0] || 'Court 1', c2 = courts[1] || c1, dur = settings.duration || 30, gap = dur + 15
-    const last = Math.max(Date.now(), ...ms.map(m => +new Date(m.start_at))) + gap * 6e4
-    const mk = (code, round, s1, s2, i, court) => ({ tournament_id: tid, code, round, slot1: s1, slot2: s2, court, start_at: new Date(last + i * gap * 6e4).toISOString(), duration: dur, golden: settings.golden, ...fmtRow(gf) })
-    let rows
-    if (gs.length === 2) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `2nd Group ${gs[1]}`, 0, c1), mk('SF2', 'Semifinal', `1st Group ${gs[1]}`, `2nd Group ${gs[0]}`, 0, c2), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, c1), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, c2)]
-    else if (gs.length === 1) rows = [mk('SF1', 'Semifinal', `1st Group ${gs[0]}`, `4th Group ${gs[0]}`, 0, c1), mk('SF2', 'Semifinal', `2nd Group ${gs[0]}`, `3rd Group ${gs[0]}`, 0, c2), mk('F', 'Final', 'Winner SF1', 'Winner SF2', 1, c1), mk('TP', 'Third Place', 'Loser SF1', 'Loser SF2', 1, c2)]
-    else return alert('Auto-generate supports 1 or 2 groups. Schedule knockout matches manually instead.')
-    if (confirm('Create semifinals, third place and final? Teams fill in automatically when the group stage is finished.')) run(supabase.from('matches').insert(rows), 'Created knockout stage', `${rows.length} matches`)
-  }
-
-  const [flt, setFlt] = useState('all')
-  const shown = ms.filter(m => flt === 'all' || (flt === 'live' ? m.status === 'live' : flt === 'todo' ? m.status === 'scheduled' : m.status === 'finished'))
-  const cnt = { all: ms.length, live: ms.filter(m => m.status === 'live').length, todo: ms.filter(m => m.status === 'scheduled').length, done: ms.filter(m => m.status === 'finished').length }
-  // arriving from the Bracket page: open that match for editing
-  useEffect(() => { if (view === 'control' && focusId) { const m = ms.find(x => x.id === focusId); if (m) { pickMatch(m); onFocus && onFocus(null) } } }, [view, focusId, ms.length])
-
-  if (view === 'overview') return <>
-    <Overview ms={ms} tm={tm} />
-    <div className="panel"><h3>Quick actions</h3><div className="ctrl">
-      <button className="btn" onClick={() => go('control')}>Open match control</button>
-      <button className="btn o" onClick={() => go('scorer')}>Open scorer</button>
-      {admin && <button className="btn o" onClick={() => go('announcements')}>Post an announcement</button>}
-      {admin && <button className="btn o" onClick={() => go('fixtures')}>Create matches</button>}
-    </div></div>
-  </>
-
-  if (view === 'fixtures') return <>
-    <FixtureGenerator tm={tm} ms={ms} tid={tid} courts={courts} settings={settings} load={load} />
-    <div className="panel"><h3>Add one match</h3><p className="muted">For a single extra match. Pick two teams, a court and a start time.</p>
-      <form className="fm" onSubmit={add}>
-        {['team1', 'team2'].map(k => <select key={k} required value={mf[k]} onChange={e => setMf({ ...mf, [k]: e.target.value })}>
-          <option value="">{k === 'team1' ? 'Team A' : 'Team B'}</option>{tm.map(t => <option key={t.id} value={t.id}>{tn(t)}</option>)}</select>)}
-        <select value={mf.round} onChange={e => setMf({ ...mf, round: e.target.value })}>{ROUNDS.map(r => <option key={r}>{r}</option>)}</select>
-        <CourtSelect value={mf.court} courts={courts} onChange={v => setMf({ ...mf, court: v })} />
-        <select value={mf.fmt} onChange={e => setMf({ ...mf, fmt: e.target.value })}>{fmtOptions(mf.fmt).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-        {FORMATS[mf.fmt].scoring !== 'race' && <select value={mf.golden} onChange={e => setMf({ ...mf, golden: e.target.value === 'true' })}><option value="true">Golden point</option><option value="false">Advantage</option></select>}
-        <select value={mf.duration} onChange={e => setMf({ ...mf, duration: e.target.value })}>{[...new Set([15, 20, 25, 30, 40, 45, 60, 75, 90, 120, +mf.duration].filter(Boolean))].sort((a, b) => a - b).map(x => <option key={x} value={x}>{x} min</option>)}</select>
-        <div className="full"><DT value={mf.start_at} onChange={v => setMf({ ...mf, start_at: v })} /></div>
-        <button className="btn">Schedule match</button>
-      </form></div>
-    <div className="panel"><h3>Knockout stage</h3>
-      {hasKO ? <p className="muted">The knockout stage already exists. See it under Results → Bracket and edit its matches in Match control.</p>
-        : !tm.length ? <p className="muted">Add teams first.</p>
-        : <><p className="muted">Creates the semifinals, third-place match and final. Teams fill in automatically when the group stage is finished.</p>
-          <div className="fm"><select value={gf} onChange={e => setGf(e.target.value)}>{fmtOptions(gf).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-            <button className="btn" onClick={genKO}>Generate knockout</button></div></>}
-    </div>
-  </>
-
-  if (view === 'timetable') return <>
-    <Reorder ms={ms} courts={courts} edit={edit} swap={swap} />
-    <div className="panel"><h3>Bulk actions</h3><p className="muted">Use after rain or a long match: push every upcoming match later in one go, or lock all finished results so they cannot change by accident.</p>
-      <div className="fm"><select value={dl} onChange={e => setDl(+e.target.value)}>{[15, 30, 45, 60].map(x => <option key={x} value={x}>Delay {x} min</option>)}</select>
-        <button className="btn o" onClick={delay}>Delay all upcoming</button>
-        <button className="btn o" onClick={lockAll}>Lock all finished</button></div></div>
-  </>
-
-  if (view === 'bracket') return hasKO
-    ? <div className="panel"><h3>Bracket</h3><p className="muted">Click a match to open it for editing in Match control.</p><BracketView matches={ms} onPick={m => onFocus(m.id)} title="Bracket" /></div>
-    : <div className="empty">There is no knockout stage yet.<button className="btn" onClick={() => go('fixtures')}>Create the knockout stage</button></div>
-
-  return <>
-    <div className="chips">{[['all', 'All'], ['live', 'Live'], ['todo', 'Upcoming'], ['done', 'Finished']].map(([k, l]) =>
-      <button key={k} className={flt === k ? 'on' : ''} onClick={() => setFlt(k)}>{l} <span>{cnt[k]}</span></button>)}</div>
-    <div className="grid">{shown.map(m => <div key={m.id} id={'m-' + m.id}><Card m={m} plain>
-      {editing === m.id ? <EditForm m={m} tm={tm} courts={courts} onSave={f => save(m, f)} onCancel={() => setEditing(null)} onDelete={() => del(m)} /> :
-        scoring === m.id ? <ScoreEdit m={m} onSave={v => saveScore(m, v)} onCancel={() => setScoring(null)} /> :
-        wob === m.id ? <WalkoverBox m={m} onSave={w => walkover(m, w)} onCancel={() => setWob(null)} /> :
-        noting === m.id ? <NoteBox m={m} onSave={v => saveNotes(m, v)} onCancel={() => setNoting(null)} /> :
-        m.locked ? <div className="ctrl"><span className="chip lock">🔒 Locked</span>
-          {admin && <button className="btn o sm" onClick={() => lock(m, false)}>Unlock</button>}
-          {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}</div> :
-        <div className="ctrl">
-          {m.status === 'scheduled' && <button className="btn sm" onClick={() => { enqueue(m, { status: 'live' }); log('Started match', mname(m)) }} disabled={!m.team1 || !m.team2}>Start match</button>}
-          {m.status === 'live' && <>
-            <button className="btn sm" onClick={() => point(m, 0)}>+ {tn(m.t1)}</button>
-            <button className="btn sm" onClick={() => point(m, 1)}>+ {tn(m.t2)}</button>
-            <button className="btn o sm" onClick={() => undo(m)}>Undo</button></>}
-          {m.status !== 'scheduled' && <button className="btn o sm" onClick={() => setScoring(m.id)}>Edit score</button>}
-          {m.status !== 'finished' && <button className="btn o sm" disabled={!m.team1 || !m.team2} onClick={() => setWob(m.id)}>Walkover</button>}
-          <button className="btn o sm" onClick={() => setNoting(m.id)}>Notes</button>
-          {admin && m.status === 'finished' && <button className="btn o sm" onClick={() => lock(m, true)}>Lock result</button>}
-          {admin && <button className="btn o sm" onClick={() => setEditing(m.id)}>Edit</button>}
-          {admin && <button className="btn o sm" onClick={() => dup(m)}>Duplicate</button>}
-          {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset this match?') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false, ...logReset(m) }, 'Reset match', mname(m))}>Reset</button>}
-          {admin && <button className="btn o sm danger" onClick={() => del(m)}>Delete</button>}
-        </div>}
-    </Card></div>)}</div>
-    {!shown.length && <div className="empty">{ms.length ? 'No matches in this view.' : 'No matches yet.'}{admin && !ms.length && <button className="btn" onClick={() => go('fixtures')}>Create matches</button>}</div>}
-  </>
-}
-
-// Bulk-add teams from a CSV file or cells pasted from Excel / Google Sheets.
-function ImportTeams({ tm, tid, run }) {
-  const [open, setOpen] = useState(false), [txt, setTxt] = useState(''), [busy, setBusy] = useState(false)
-  const key = r => [r.player1, r.player2].map(x => x.trim().toLowerCase()).sort().join('|')
-  const res = useMemo(() => {
-    const { rows, errors } = parseTeams(txt), have = new Set(tm.map(key)), fresh = [], dup = []
-    rows.forEach(r => { if (have.has(key(r))) dup.push(r); else { have.add(key(r)); fresh.push(r) } })
-    return { fresh, dup, errors }
-  }, [txt, tm])
-  const pickFile = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) setTxt(await f.text()) }
-  const template = () => {
-    const csv = '\uFEFFsep=;\nplayer1;player2;team name;group\nAndi;Budi;Team Elang;A\nCandra;Dewi;Team Rajawali;A\nEko;Fajar;;B\n'
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'courtline-teams-template.csv'; a.click()
-  }
-  const go = async () => {
-    setBusy(true)
-    const ok = await run(supabase.from('teams').insert(res.fresh.map(r => ({ ...r, tournament_id: tid }))), 'Imported teams', `${res.fresh.length} team(s)`)
-    setBusy(false)
-    if (ok) { setTxt(''); setOpen(false) }
-  }
-  return <div className="imp">
-    <button className="btn o sm" onClick={() => setOpen(!open)}>{open ? 'Close import' : 'Import teams from CSV / Excel'}</button>
-    {open && <div className="editbox">
-      <p className="muted">Columns: <b>player1, player2, team name (optional), group</b>. Upload a .csv file, or copy the cells from Excel / Google Sheets and paste them below. In Excel you can also use File → Save As → CSV.</p>
-      <div className="ctrl">
-        <label className="btn o sm">Choose CSV file<input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={pickFile} /></label>
-        <button className="btn o sm" onClick={template}>Download template</button>
-      </div>
-      <textarea className="ta" rows={7} spellCheck={false} placeholder={'player1;player2;team name;group\nAndi;Budi;Team Elang;A'} value={txt} onChange={e => setTxt(e.target.value)} />
-      {txt.trim() && <div className="imps">
-        <p><b>{res.fresh.length}</b> team(s) ready to import{res.dup.length > 0 && <> · <b>{res.dup.length}</b> skipped (already exist)</>}{res.errors.length > 0 && <> · <b>{res.errors.length}</b> row(s) with problems</>}</p>
-        {res.errors.length > 0 && <ul className="errs">{res.errors.slice(0, 8).map(x => <li key={x}>{x}</li>)}{res.errors.length > 8 && <li>…and {res.errors.length - 8} more</li>}</ul>}
-        {res.fresh.length > 0 && <div className="scroll"><table className="tb left"><tbody>{res.fresh.slice(0, 40).map((r, i) => <tr key={i}><td><b>{r.name}</b></td><td>{r.player1} / {r.player2}</td><td>Group {r.grp}</td></tr>)}</tbody></table></div>}
-        {res.fresh.length > 40 && <p className="muted">Showing the first 40 of {res.fresh.length}.</p>}
-      </div>}
-      <div className="ctrl"><button className="btn sm" disabled={!res.fresh.length || busy} onClick={go}>{busy ? 'Importing…' : `Import ${res.fresh.length} team(s)`}</button></div>
-    </div>}
-  </div>
-}
-
-function Teams({ tm, ms = [], tours, tid, run, load, settings }) {
-  const blank = { name: '', player1: '', player2: '', grp: 'A' }, [tf, setTf] = useState(blank)
-  const [eid, setEid] = useState(null), [ef, setEf] = useState(blank)
-  const set = k => e => setTf({ ...tf, [k]: e.target.value })
-  const eset = k => e => setEf({ ...ef, [k]: e.target.value })
-  const others = (p1, p2, skip) => tm.filter(x => x.id !== skip && [p1, p2].some(n => [x.player1, x.player2].some(y => y.trim().toLowerCase() === n.trim().toLowerCase())))
-  const withdraw = async t => {
-    const list = ms.filter(m => m.status !== 'finished' && !m.locked && m.team1 && m.team2 && (m.team1 === t.id || m.team2 === t.id))
-    if (!list.length) return alert(`${tn(t)} has no unplayed matches with a known opponent.`)
-    if (!confirm(`Withdraw ${tn(t)}? ${list.length} unplayed match(es) will be recorded as walkover wins for their opponents. This does not delete the team.`)) return
-    const rs = await Promise.all(list.map(m => { const w = m.team1 === t.id ? 1 : 0
-      return supabase.from('matches').update({ status: 'finished', winner: w ? m.team2 : m.team1, wo: true, sets: woSets(m, w), g: [0, 0], p: [0, 0], history: [...(m.history || []).slice(-30), { sets: m.sets, g: m.g, p: m.p }], ...(settings.autoLock ? { locked: true } : {}) }).eq('id', m.id) })), er = rs.find(r => r.error)
-    if (er) alert(er.error.message); else log('Withdrew team', `${tn(t)}: ${list.length} walkover(s)`)
-    load()
-  }
-  const startEdit = t => { setEid(t.id); setEf({ name: t.name || '', player1: t.player1, player2: t.player2, grp: t.grp || 'A' }) }
-  const saveEdit = t => {
-    if (!ef.player1.trim() || !ef.player2.trim()) return alert('Both player names are required')
-    run(supabase.from('teams').update({ name: ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`, player1: ef.player1.trim(), player2: ef.player2.trim(), grp: ef.grp }).eq('id', t.id), 'Edited team', ef.name.trim() || `${ef.player1.trim()} x ${ef.player2.trim()}`).then(() => setEid(null))
-  }
-  return <div className="panel"><h3>Teams & players</h3>
-    <form className="fm" onSubmit={e => { e.preventDefault(); const dupP = others(tf.player1, tf.player2); if (dupP.length && !confirm(`A player with the same name is already in ${dupP.map(tn).join(', ')}. Add this team anyway?`)) return; run(supabase.from('teams').insert({ ...tf, name: tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`, tournament_id: tid }), 'Added team', tf.name.trim() || `${tf.player1.trim()} x ${tf.player2.trim()}`); setTf(blank) }}>
-      <input required placeholder="Player 1" value={tf.player1} onChange={set('player1')} />
-      <input required placeholder="Player 2" value={tf.player2} onChange={set('player2')} />
-      <input placeholder="Team name (optional)" value={tf.name} onChange={set('name')} />
-      <select value={tf.grp} onChange={set('grp')}>{GROUPS.map(g => <option key={g} value={g}>Group {g}</option>)}</select>
-      <button className="btn">Add team</button>
-    </form>
-    <ImportTeams tm={tm} tid={tid} run={run} />
-    <DrawGroups tm={tm} ms={ms} load={load} />
-    <div className="items">{tm.map(t => eid === t.id
-      ? <div className="item editing" key={t.id}>
-        <div className="fm">
-          <input placeholder="Team name" value={ef.name} onChange={eset('name')} />
-          <input placeholder="Player 1" value={ef.player1} onChange={eset('player1')} />
-          <input placeholder="Player 2" value={ef.player2} onChange={eset('player2')} />
-          <select value={ef.grp} onChange={eset('grp')}>{[...new Set([...GROUPS, ef.grp])].map(g => <option key={g} value={g}>Group {g}</option>)}</select>
-        </div>
-        <div className="ctrl"><button className="btn sm" onClick={() => saveEdit(t)}>Save</button><button className="btn o sm" onClick={() => setEid(null)}>Cancel</button></div>
-      </div>
-      : <div className="item" key={t.id}>
-        <div className="im"><b>{tn(t)}</b><small>{t.player1} / {t.player2}</small></div>
-        <span className="chip">Group {t.grp}</span>
-        <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
-          <button className="btn o sm" onClick={() => withdraw(t)}>Withdraw</button>
-          <button className="btn o sm danger" onClick={() => confirm('Delete team and its matches?') && run(supabase.from('teams').delete().eq('id', t.id), 'Deleted team', tn(t))}>Delete</button></div>
-      </div>)}</div>
-    {!tm.length && <p className="muted">No teams yet.</p>}
-  </div>
-}
-
-function Tournaments({ tours, run }) {
-  const blank = { name: '', gender: 'Men', level: 'Beginner', start_date: '' }, [f, setF] = useState(blank)
-  const [eid, setEid] = useState(null), [ef, setEf] = useState(blank)
-  const set = k => e => setF({ ...f, [k]: e.target.value })
-  const eset = k => e => setEf({ ...ef, [k]: e.target.value })
-  const startEdit = t => { setEid(t.id); setEf({ name: t.name, gender: t.gender, level: t.level, start_date: t.start_date || '' }) }
-  const saveEdit = t => {
-    if (!ef.name.trim()) return alert('Tournament name is required')
-    run(supabase.from('tournaments').update({ name: ef.name.trim(), gender: ef.gender, level: ef.level, start_date: ef.start_date || null }).eq('id', t.id), 'Edited tournament', ef.name.trim()).then(() => setEid(null))
-  }
-  return <div className="panel"><h3>Tournaments</h3>
-    <form className="fm" onSubmit={e => { e.preventDefault(); run(supabase.from('tournaments').insert({ ...f, start_date: f.start_date || null }), 'Created tournament', f.name); setF(blank) }}>
-      <input required className="wide" placeholder="Tournament name, e.g. BEGINNER MEN GROUP STAGE" value={f.name} onChange={set('name')} />
-      <select value={f.gender} onChange={set('gender')}>{GENDERS.map(x => <option key={x} value={x}>{genderLabel(x)}</option>)}</select>
-      <select value={f.level} onChange={set('level')}>{levelOptions(f.level).map(x => <option key={x}>{x}</option>)}</select>
-      <input type="date" value={f.start_date} onChange={set('start_date')} />
-      <button className="btn">Create</button>
-    </form>
-    <div className="items">{tours.map(t => eid === t.id
-      ? <div className="item editing" key={t.id}>
-        <div className="fm">
-          <input className="wide" placeholder="Tournament name" value={ef.name} onChange={eset('name')} />
-          <select value={ef.gender} onChange={eset('gender')}>{GENDERS.map(x => <option key={x} value={x}>{genderLabel(x)}</option>)}</select>
-          <select value={ef.level} onChange={eset('level')}>{levelOptions(ef.level).map(x => <option key={x}>{x}</option>)}</select>
-          <input type="date" value={ef.start_date} onChange={eset('start_date')} />
-        </div>
-        <div className="ctrl"><button className="btn sm" onClick={() => saveEdit(t)}>Save</button><button className="btn o sm" onClick={() => setEid(null)}>Cancel</button></div>
-      </div>
-      : <div className="item" key={t.id}>
-        <div className="im"><b>{t.name}</b><small>{genderLabel(t.gender)} · {t.level}{t.start_date ? ' · ' + t.start_date : ''}</small></div>
-        <div className="ia"><button className="btn o sm" onClick={() => startEdit(t)}>Edit</button>
-          <button className="btn o sm danger" onClick={() => confirm('Delete this tournament with all its teams and matches?') && run(supabase.from('tournaments').delete().eq('id', t.id), 'Deleted tournament', t.name)}>Delete</button></div>
-      </div>)}</div>
   </div>
 }
 
@@ -429,22 +45,22 @@ function Announce({ ann, run }) {
   const add = e => {
     e.preventDefault()
     const message = f.message.trim(); if (!message) return
-    run(supabase.from('announcements').insert({ message, level: f.level }), 'Posted announcement', message); setF({ message: '', level: 'info' })
+    run(supabase.from('announcements').insert({ message, level: f.level }), 'Membuat pengumuman', message); setF({ message: '', level: 'info' })
   }
-  return <div className="panel"><h3>Announcements</h3>
-    <p className="muted">Shown as a banner at the top of every page and on the TV screen while it is visible. Viewers get a notification if they turned on "Notify me".</p>
+  return <div className="panel"><h3>Pengumuman</h3>
+    <p className="muted">Tampil sebagai banner di bagian atas semua halaman dan di layar TV selama masih ditampilkan. Penonton yang mengaktifkan "Beri tahu saya" juga mendapat notifikasi.</p>
     <form className="fm" onSubmit={add}>
-      <input required className="wide" maxLength={200} placeholder="e.g. Schedule delayed 30 minutes due to rain" value={f.message} onChange={e => setF({ ...f, message: e.target.value })} />
-      <select value={f.level} onChange={e => setF({ ...f, level: e.target.value })}><option value="info">Notice</option><option value="warning">Important</option></select>
-      <button className="btn">Post</button>
+      <input required className="wide" maxLength={200} placeholder="mis. Jadwal mundur 30 menit karena hujan" value={f.message} onChange={e => setF({ ...f, message: e.target.value })} />
+      <select value={f.level} onChange={e => setF({ ...f, level: e.target.value })}><option value="info">Info</option><option value="warning">Penting</option></select>
+      <button className="btn">Kirim</button>
     </form>
     <div className="items">{ann.map(a => <div className="item" key={a.id}>
-      <div className="im"><b>{a.message}</b><small>{a.level === 'warning' ? 'Important' : 'Notice'} · {a.active ? 'Visible' : 'Hidden'} · {fmtDate(a.created_at)} {fmtTime(a.created_at)}</small></div>
+      <div className="im"><b>{a.message}</b><small>{a.level === 'warning' ? 'Penting' : 'Info'} · {a.active ? 'Ditampilkan' : 'Disembunyikan'} · {fmtDate(a.created_at)} {fmtTime(a.created_at)}</small></div>
       <div className="ia">
-        <button className="btn o sm" onClick={() => run(supabase.from('announcements').update({ active: !a.active }).eq('id', a.id), a.active ? 'Hid announcement' : 'Showed announcement', a.message)}>{a.active ? 'Hide' : 'Show'}</button>
-        <button className="btn o sm danger" onClick={() => confirm('Delete this announcement?') && run(supabase.from('announcements').delete().eq('id', a.id), 'Deleted announcement', a.message)}>Delete</button>
+        <button className="btn o sm" onClick={() => run(supabase.from('announcements').update({ active: !a.active }).eq('id', a.id), a.active ? 'Menyembunyikan pengumuman' : 'Menampilkan pengumuman', a.message)}>{a.active ? 'Sembunyikan' : 'Tampilkan'}</button>
+        <button className="btn o sm danger" onClick={() => confirm('Hapus pengumuman ini?') && run(supabase.from('announcements').delete().eq('id', a.id), 'Menghapus pengumuman', a.message)}>Hapus</button>
       </div></div>)}</div>
-    {!ann.length && <p className="muted">No announcements yet.</p>}
+    {!ann.length && <p className="muted">Belum ada pengumuman.</p>}
   </div>
 }
 
@@ -454,51 +70,52 @@ function AccountPage({ me, admin, run }) {
   useEffect(() => { loadStaff() }, [admin])
   const changePw = async e => {
     e.preventDefault()
-    if (np.length < 6) return alert('Password must be at least 6 characters')
-    if (np !== cp) return alert('Passwords do not match')
+    if (np.length < 6) return alert('Password minimal 6 karakter')
+    if (np !== cp) return alert('Password tidak sama')
     const { error } = await supabase.auth.updateUser({ password: np })
     if (error) return alert(error.message)
-    setNp(''); setCp(''); alert('Password updated')
+    setNp(''); setCp(''); alert('Password diperbarui')
   }
   const addUser = async e => {
     e.preventDefault()
     const tmp = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
     const { data, error } = await tmp.auth.signUp({ email: emailOf(nf.username), password: nf.password })
     if (error) return alert(error.message)
-    if (!data.user) return alert('Could not create the account')
+    if (!data.user) return alert('Akun tidak bisa dibuat')
     const r = await supabase.from('staff').insert({ user_id: data.user.id, username: nf.username.trim().toLowerCase(), role: nf.role })
     if (r.error) return alert(r.error.message)
-    log('Added account', `${nf.username.trim().toLowerCase()} (${nf.role})`); setNf({ username: '', password: '', role: 'scorer' }); loadStaff()
+    log('Menambah akun', `${nf.username.trim().toLowerCase()} (${nf.role})`); setNf({ username: '', password: '', role: 'scorer' }); loadStaff()
   }
   const resetPw = async u => {
-    const pw = prompt(`New password for ${u.username} (at least 6 characters):`)
+    const pw = prompt(`Password baru untuk ${u.username} (minimal 6 karakter):`)
     if (!pw) return
     const { error } = await supabase.rpc('admin_reset_password', { target: u.user_id, new_password: pw })
-    if (error) return alert(error.message + (/function|schema cache/i.test(error.message) ? '\nRun the latest supabase.sql first.' : ''))
-    log('Reset password', u.username); alert(`Password reset for ${u.username}. Give them the new password.`)
+    if (error) return alert(error.message + (/function|schema cache/i.test(error.message) ? '\nJalankan supabase.sql terbaru dulu.' : ''))
+    log('Reset password', u.username); alert(`Password ${u.username} direset. Berikan password baru kepada yang bersangkutan.`)
   }
   return <>
-    <div className="panel"><h3>Change password</h3><p className="muted">Signed in as <b>{me.username}</b>. Pick a strong password you don't use elsewhere.</p>
+    <div className="panel"><h3>Ganti password</h3><p className="muted">Masuk sebagai <b>{me.username}</b>. Pilih password yang kuat dan tidak dipakai di tempat lain.</p>
       <form className="fm" onSubmit={changePw}>
-        <input type="password" autoComplete="new-password" placeholder="New password" value={np} onChange={e => setNp(e.target.value)} />
-        <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={cp} onChange={e => setCp(e.target.value)} />
-        <button className="btn">Update password</button></form></div>
+        <input type="password" autoComplete="new-password" placeholder="Password baru" value={np} onChange={e => setNp(e.target.value)} />
+        <input type="password" autoComplete="new-password" placeholder="Ulangi password baru" value={cp} onChange={e => setCp(e.target.value)} />
+        <button className="btn">Simpan password</button></form></div>
     {admin && <>
-      <div className="panel"><h3>Accounts</h3><p className="muted">Admin: full access. Scorer: can start matches, enter and correct scores, record walkovers and notes. You can change a role at any time, and reset a password if someone forgets it (it is a new password you hand over; the old one stops working).</p>
+      <div className="panel"><h3>Akun panitia</h3><p className="muted"><b>Admin</b>: akses penuh. <b>Penjaga skor</b>: hanya boleh memulai pertandingan, memasukkan dan mengoreksi skor, mencatat walkover dan catatan. Peran bisa diubah kapan saja, dan password bisa direset jika lupa (kamu memberi password baru, password lama tidak berlaku lagi).</p>
         <form className="fm" onSubmit={addUser}>
-          <input required placeholder="Username" autoCapitalize="none" value={nf.username} onChange={e => setNf({ ...nf, username: e.target.value })} />
-          <input required type="password" placeholder="Password (min 6)" value={nf.password} onChange={e => setNf({ ...nf, password: e.target.value })} />
-          <select value={nf.role} onChange={e => setNf({ ...nf, role: e.target.value })}><option value="scorer">Scorer</option><option value="admin">Admin</option></select>
-          <button className="btn">Add account</button></form>
-        <div className="scroll"><table className="tb left"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b>{s.user_id === me.user_id && <small> (you)</small>}</td>
-          <td>{s.user_id === me.user_id ? s.role : <select value={s.role} onChange={e => run(supabase.from('staff').update({ role: e.target.value }).eq('user_id', s.user_id), 'Changed role', `${s.username} → ${e.target.value}`).then(loadStaff)}><option value="scorer">scorer</option><option value="admin">admin</option></select>}</td>
+          <input required placeholder="Nama pengguna" autoCapitalize="none" value={nf.username} onChange={e => setNf({ ...nf, username: e.target.value })} />
+          <input required type="password" placeholder="Password (min. 6)" value={nf.password} onChange={e => setNf({ ...nf, password: e.target.value })} />
+          <select value={nf.role} onChange={e => setNf({ ...nf, role: e.target.value })}><option value="scorer">Penjaga skor</option><option value="admin">Admin</option></select>
+          <button className="btn">Tambah akun</button></form>
+        <div className="scroll"><table className="tb left"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b>{s.user_id === me.user_id && <small> (kamu)</small>}</td>
+          <td>{s.user_id === me.user_id ? s.role : <select value={s.role} onChange={e => run(supabase.from('staff').update({ role: e.target.value }).eq('user_id', s.user_id), 'Mengubah peran', `${s.username} → ${e.target.value}`).then(loadStaff)}><option value="scorer">penjaga skor</option><option value="admin">admin</option></select>}</td>
           <td className="ra">{s.user_id !== me.user_id && <><button className="btn o sm" onClick={() => resetPw(s)}>Reset password</button>{' '}
-            <button className="btn o sm danger" onClick={() => confirm(`Remove access for ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id), 'Removed account', s.username).then(loadStaff)}>Remove</button></>}</td></tr>)}</tbody></table></div></div>
+            <button className="btn o sm danger" onClick={() => confirm(`Cabut akses ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id), 'Mencabut akun', s.username).then(loadStaff)}>Cabut</button></>}</td></tr>)}</tbody></table></div></div>
     </>}
   </>
 }
 
-// ---------- Admin navigation: 4 groups, each page does exactly one job ----------
+
+// ---------- Menu admin: 4 kelompok, setiap halaman punya satu tugas ----------
 const GI = {
   day: <><circle cx="12" cy="12" r="3" /><path d="M6.3 6.3a8 8 0 000 11.4M17.7 6.3a8 8 0 010 11.4" /></>,
   setup: <><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></>,
@@ -507,9 +124,10 @@ const GI = {
 }
 const PI = { overview: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></>,
   scorer: <><rect x="7" y="2.5" width="10" height="19" rx="2" /><path d="M11 18h2" /></>, control: GI.setup, announcements: <path d="M4 10v4h3l7 4V6L7 10zM17 9a4 4 0 010 6" />,
-  tournaments: GI.results, teams: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0112 0M16 5a3.2 3.2 0 010 6M18 20a6 6 0 00-3-5.2" /></>,
+  tournaments: <><path d="M4 6h16M4 12h16M4 18h10" /></>, teams: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0112 0M16 5a3.2 3.2 0 010 6M18 20a6 6 0 00-3-5.2" /></>,
   fixtures: <path d="M12 5v14M5 12h14" />, timetable: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   standings: <path d="M5 20V10M12 20V4M19 20v-7" />, bracket: <path d="M4 5h5v4H4zM4 15h5v4H4zM15 10h5v4h-5zM9 7h3v10H9M12 12h3" />,
+  matchhist: <path d="M5 4h14v16H5zM9 8h6M9 12h6M9 16h3" />,
   export: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />, site: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" /></>,
   rules: GI.system, accounts: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></>,
   backup: <><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></>,
@@ -517,35 +135,36 @@ const PI = { overview: <><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect
 const PIcon = ({ id }) => <svg className="pi" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{PI[id]}</svg>
 
 const NAV = [
-  { id: 'day', label: 'Match day', pages: [
-    { id: 'overview', label: 'Dashboard', icon: 'dash', hint: 'The whole event at a glance: courts, next matches, results and what needs your attention.' },
-    { id: 'scorer', label: 'Scorer', hint: 'Full-screen scoring for one court: two big +1 buttons and Undo. Keeps working with a weak signal.' },
-    { id: 'control', label: 'Match control', tour: 1, hint: 'Start matches, add points, correct scores, record walkovers and notes for every match.' },
-    { id: 'announcements', label: 'Announcements', admin: 1, hint: 'Messages shown at the top of the public site and on the TV screen.' }] },
-  { id: 'setup', label: 'Setup', admin: 1, pages: [
-    { id: 'tournaments', label: 'Tournaments', admin: 1, hint: 'Create and edit the categories, for example Beginner Men.' },
-    { id: 'teams', label: 'Teams', admin: 1, tour: 1, hint: 'Add, import, edit and withdraw teams, and draw them into groups.' },
-    { id: 'fixtures', label: 'Create matches', admin: 1, tour: 1, hint: 'Generate the group fixtures, add a single match, or create the knockout stage.' },
-    { id: 'timetable', label: 'Timetable', admin: 1, tour: 1, hint: 'Change match times and courts, move matches up or down, delay everything, lock finished results.' }] },
-  { id: 'results', label: 'Results', admin: 1, pages: [
-    { id: 'standings', label: 'Standings', admin: 1, hint: 'Group tables, tie-break warnings and manual ranking when teams are level.' },
-    { id: 'bracket', label: 'Bracket', admin: 1, tour: 1, hint: 'The knockout bracket. Click a match to edit it.' },
-    { id: 'export', label: 'Export & print', admin: 1, hint: 'Download results, standings and schedules, or print them.' }] },
-  { id: 'system', label: 'System', pages: [
-    { id: 'site', label: 'Site & event page', admin: 1, hint: 'Event name, logo, colours, language and the Info page shown to visitors.' },
-    { id: 'rules', label: 'Rules & courts', admin: 1, hint: 'Time zone, default scoring rules and the list of courts.' },
-    { id: 'accounts', label: 'Accounts', hint: 'Change your password. Admins can also add staff accounts and reset passwords.' },
-    { id: 'backup', label: 'Backup & check', admin: 1, hint: 'Back up and restore the data, and check that the system is set up correctly.' },
-    { id: 'history', label: 'History', admin: 1, hint: 'Who changed what, and when.' }] }
+  { id: 'day', label: 'Hari Pertandingan', pages: [
+    { id: 'overview', label: 'Beranda', hint: 'Ringkasan seluruh acara: lapangan, pertandingan berikutnya, hasil, dan hal yang perlu perhatianmu.' },
+    { id: 'scorer', label: 'Skor Lapangan', hint: 'Layar penuh untuk mencatat skor satu lapangan: dua tombol +1 besar dan Batalkan. Tetap aman walau sinyal lemah.' },
+    { id: 'control', label: 'Kontrol Pertandingan', tour: 1, hint: 'Mulai pertandingan, tambah poin, koreksi skor, catat walkover dan catatan untuk setiap pertandingan.' },
+    { id: 'announcements', label: 'Pengumuman', admin: 1, hint: 'Pesan yang tampil di bagian atas situs penonton dan di layar TV.' }] },
+  { id: 'setup', label: 'Persiapan', admin: 1, pages: [
+    { id: 'tournaments', label: 'Kategori', admin: 1, hint: '1. Mulai dari sini: buat kategori pertandingan (mis. Bronze, Beginner, Amatir). Bisa ditambah dan dihapus kapan saja.' },
+    { id: 'teams', label: 'Tim & Pemain', admin: 1, tour: 1, hint: '2. Tambah tim satu per satu atau impor dari Excel, lalu acak grup.' },
+    { id: 'fixtures', label: 'Buat Jadwal', admin: 1, tour: 1, hint: '3. Buat jadwal babak grup otomatis, atau tambahkan satu pertandingan.' },
+    { id: 'timetable', label: 'Atur Jadwal', admin: 1, tour: 1, hint: 'Ubah jam dan lapangan, geser pertandingan, mundurkan semua jadwal, atau kunci hasil.' },
+    { id: 'bracket', label: 'Bagan', admin: 1, tour: 1, hint: '4. Susun bagan semifinal/final: acak otomatis, atur manual, atau dari klasemen grup. Pemenang otomatis maju.' }] },
+  { id: 'results', label: 'Hasil', admin: 1, pages: [
+    { id: 'standings', label: 'Klasemen', admin: 1, hint: 'Tabel grup, peringatan jika seri, dan pengaturan urutan manual.' },
+    { id: 'matchhist', label: 'Riwayat Pertandingan', admin: 1, tour: 1, hint: 'Lihat, koreksi, atau hapus pertandingan yang sudah selesai.' },
+    { id: 'export', label: 'Unduh & Cetak', admin: 1, hint: 'Unduh hasil, klasemen, dan jadwal ke Excel, atau cetak ke PDF.' }] },
+  { id: 'system', label: 'Sistem', pages: [
+    { id: 'site', label: 'Tampilan Situs', admin: 1, hint: 'Nama acara, logo, warna, dan halaman Info untuk penonton.' },
+    { id: 'rules', label: 'Aturan & Lapangan', admin: 1, hint: 'Zona waktu, aturan skor bawaan, dan daftar lapangan.' },
+    { id: 'accounts', label: 'Akun', hint: 'Ganti password. Admin juga bisa menambah akun panitia dan mereset password.' },
+    { id: 'backup', label: 'Cadangan & Cek Sistem', admin: 1, hint: 'Cadangkan dan pulihkan data, kosongkan data uji coba, dan cek apakah sistem sudah siap.' },
+    { id: 'history', label: 'Log Perubahan', admin: 1, hint: 'Siapa mengubah apa, dan kapan.' }] }
 ]
 
 export default function Admin({ matches: serverMatches, teams, tours, ann = [], settings, tid, load, onBack, onPrint }) {
   const [session, setSession] = useState(undefined), [me, setMe] = useState(null), [page, setPageS] = useState(() => { try { return sessionStorage.getItem('adm_page') || '' } catch { return '' } }), [at, setAt] = useState(''), [focusId, setFocusId] = useState(null)
   const setPage = p => { setPageS(p); try { sessionStorage.setItem('adm_page', p) } catch {} window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const [menu, setMenu] = useState(false), ob = useOutbox()
-  const matches = useMemo(() => overlay(serverMatches, ob.items), [serverMatches, ob.items]) // this phone's not-yet-sent points shown on top
+  const [menu, setMenu] = useState(false), ob = useOutbox(), sig = useRef('')
+  const matches = useMemo(() => overlay(serverMatches, ob.items), [serverMatches, ob.items]) // poin yang belum terkirim dari HP ini tampil di atas data server
   useEffect(() => { setSyncHook(load); return () => setSyncHook(null) }, [load])
-  useEffect(() => { if (me && me.role !== 'admin') setPage('scorer') }, [me && me.user_id]) // scorers land straight on the scorer screen
+  useEffect(() => { if (me && me.role !== 'admin') setPage('scorer') }, [me && me.user_id]) // penjaga skor langsung ke layar skor
   useEffect(() => {
     supabase.auth.getSession().then(r => setSession(r.data.session))
     const { data } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
@@ -555,7 +174,7 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
     if (!session) return setMe(null)
     supabase.from('staff').select('*').eq('user_id', session.user.id).maybeSingle().then(r => setMe(r.data || false))
   }, [session])
-  useEffect(() => { // backup fallback: if the scheduled backup could not run, an admin opening the console takes one
+  useEffect(() => { // cadangan otomatis: jika jadwal cadangan tidak jalan, admin yang membuka konsol membuatnya
     if (!me || me.role !== 'admin') return
     supabase.from('backups').select('created_at').order('created_at', { ascending: false }).limit(1).then(r => {
       if (r.error) return
@@ -563,85 +182,98 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
       if (!last || Date.now() - +new Date(last) > 6 * 36e5) supabase.rpc('make_backup', { k: 'auto' }).then(() => {}, () => {})
     })
   }, [me && me.user_id])
-  useEffect(() => { if (!tours.some(t => t.id === at)) setAt(tid !== 'all' && tours.some(t => t.id === tid) ? tid : tours[0]?.id || '') }, [tours, tid])
-  // Fill knockout slots ("1st Group A", "Winner SF1") with real teams once they are decided
+  useEffect(() => { if (!tours.some(x => x.id === at)) setAt(tid !== 'all' && tours.some(x => x.id === tid) ? tid : tours[0]?.id || '') }, [tours, tid])
+
+  // Bagan otomatis: slot seperti "Juara 1 Grup A" atau "Pemenang SF1" diisi tim sungguhan begitu hasilnya pasti.
+  // Jika skor dikoreksi, pertandingan berikutnya yang BELUM dimulai ikut menyesuaikan. Pilihan manual admin (kolom manual) tidak ditimpa.
   useEffect(() => {
     if (!me) return
     const ups = []
-    tours.forEach(t => {
-      const tm = teams.filter(x => x.tournament_id === t.id), ms = matches.filter(x => x.tournament_id === t.id)
-      ms.forEach(m => [1, 2].forEach(k => {
-        if (!m['team' + k] && m['slot' + k]) { const id = resolve(m['slot' + k], tm, ms); if (id) ups.push([m.id, { ['team' + k]: id }]) }
-      }))
+    tours.forEach(tr => {
+      const tm = teams.filter(x => x.tournament_id === tr.id), ms = matches.filter(x => x.tournament_id === tr.id)
+      ms.forEach(m => {
+        const col = 'manual' in m
+        if (col && m.manual) return
+        const patch = {}
+        ;[1, 2].forEach(k => {
+          const slot = m['slot' + k]; if (!slot) return
+          const cur = m['team' + k], id = resolve(slot, tm, ms)
+          if (id) { if (id !== cur && (!cur || (col && m.status === 'scheduled'))) patch['team' + k] = id }
+          else if (cur && col && m.status === 'scheduled') patch['team' + k] = null
+        })
+        if (Object.keys(patch).length) ups.push([m.id, patch])
+      })
     })
-    if (ups.length) Promise.all(ups.map(([id, v]) => supabase.from('matches').update(v).eq('id', id))).then(load)
+    const s = JSON.stringify(ups)
+    if (!ups.length) { sig.current = ''; return }
+    if (s === sig.current) return // jangan ulangi percobaan yang sama jika gagal (mis. tidak punya izin)
+    sig.current = s
+    Promise.all(ups.map(([id, v]) => supabase.from('matches').update(v).eq('id', id))).then(load)
   }, [matches, teams, me])
 
-  useEffect(() => { // body scroll lock + Esc while the menu is open; keep the admin bar under the site header
+  useEffect(() => { // kunci scroll + Esc saat menu terbuka
     if (!menu) return
     const k = e => e.key === 'Escape' && setMenu(false), o = document.body.style.overflow
     document.body.style.overflow = 'hidden'; window.addEventListener('keydown', k)
     return () => { document.body.style.overflow = o; window.removeEventListener('keydown', k) }
   }, [menu])
-  useEffect(() => {
-    const f = () => { const b = document.querySelector('.bar'); if (b) document.documentElement.style.setProperty('--barh', b.offsetHeight + 'px') }
-    f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f)
-  }, [])
 
   if (session === undefined) return null
   if (!session) return <Login onBack={onBack} />
-  if (me === null) return <p className="muted">Loading…</p>
-  if (me === false) return <div className="empty">This account has no staff access.<br /><button className="btn" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
+  if (me === null) return <p className="muted">Memuat…</p>
+  if (me === false) return <div className="empty">Akun ini tidak punya akses panitia.<br /><button className="btn" onClick={() => supabase.auth.signOut()}>Keluar</button></div>
   const admin = me.role === 'admin'
-  const run = async (p, act, detail) => { const { error } = await p; if (error) alert(error.message); else if (act) log(act, detail); load(); return !error }
+  const run = async (p, act, detail) => { const { error } = await p; if (error) alert(error.message + (/check constraint|violates/i.test(error.message) ? '\n\nJalankan supabase.sql terbaru di Supabase > SQL Editor, lalu coba lagi.' : '')); else if (act) log(act, detail); load(); return !error }
   const save = async (patch, act, detail) => {
     const { error } = await supabase.from('settings').upsert({ id: 'main', data: { ...settings, ...patch }, updated_at: new Date().toISOString() })
-    if (error) { alert(error.message + (/relation|schema cache/i.test(error.message) ? '\nRun the latest supabase.sql in Supabase first.' : '')); return false }
-    log(act || 'Updated settings', detail); load(); return true
+    if (error) { alert(error.message + (/relation|schema cache/i.test(error.message) ? '\nJalankan supabase.sql terbaru di Supabase dulu.' : '')); return false }
+    log(act || 'Mengubah pengaturan', detail); load(); return true
   }
-  const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at)
+  const tm = teams.filter(x => x.tournament_id === at), ms = matches.filter(x => x.tournament_id === at), tour = tours.find(x => x.id === at)
   const groups = NAV.filter(g => admin || !g.admin).map(g => ({ ...g, pages: g.pages.filter(p => admin || !p.admin) })).filter(g => g.pages.length)
   const pages = groups.flatMap(g => g.pages.map(p => ({ ...p, g })))
   const cur = pages.find(p => p.id === page) || pages.find(p => p.id === (admin ? 'overview' : 'scorer'))
   const liveNow = matches.filter(m => m.status === 'live').length
   const go = id => setPage(id)
   const focus = id => { setFocusId(id); if (id) setPage('control') }
-  const label = p => p.id === 'accounts' && !admin ? 'My password' : p.label
-  const view = ['control', 'fixtures', 'timetable', 'bracket'].includes(cur.id) ? cur.id : null
+  const label = p => p.id === 'accounts' && !admin ? 'Password Saya' : p.label
+  const view = ['control', 'fixtures', 'timetable', 'matchhist'].includes(cur.id) ? cur.id : null
   const pick = id => { setMenu(false); go(id) }
+  const courts = (settings.courts && settings.courts.length ? settings.courts : ['Court 1', 'Court 2', 'Court 3', 'Court 4'].map(name => ({ name, active: true }))).filter(c => c.active).map(c => c.name)
   return <div className="adm">
     <div className="abar">
-      <button className="burger" onClick={() => setMenu(true)} aria-label="Open menu" aria-expanded={menu}><span /><span /><span /></button>
+      <button className="burger" onClick={() => setMenu(true)} aria-label="Buka menu" aria-expanded={menu}><span /><span /><span /></button>
       <div className="abt"><small>{cur.g.label}</small><b>{label(cur)}</b></div>
       <div className="abr"><SyncBadge />{liveNow > 0 && <button className="lvp" onClick={() => go('control')}><i />{liveNow} live</button>}</div>
     </div>
     <div className={'drw' + (menu ? ' open' : '')} aria-hidden={!menu}>
       <div className="drb" onClick={() => setMenu(false)} />
-      <aside className="drp" role="dialog" aria-label="Admin menu">
-        <div className="drh"><div className="av">{(me.username || '?').slice(0, 1).toUpperCase()}</div><div><b>{me.username}</b><small>{me.role}</small></div>
-          <button className="drx" onClick={() => setMenu(false)} aria-label="Close menu">×</button></div>
-        <nav className="dnav" aria-label="Admin sections">{groups.map(g => <div key={g.id} className="dg">
+      <aside className="drp" role="dialog" aria-label="Menu admin">
+        <div className="drh"><div className="av">{(me.username || '?').slice(0, 1).toUpperCase()}</div><div><b>{me.username}</b><small>{admin ? 'admin' : 'penjaga skor'}</small></div>
+          <button className="drx" onClick={() => setMenu(false)} aria-label="Tutup menu">×</button></div>
+        <nav className="dnav" aria-label="Bagian admin">{groups.map(g => <div key={g.id} className="dg">
           <div className="dgl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{GI[g.id]}</svg>{g.label}</div>
           {g.pages.map(p => <button key={p.id} tabIndex={menu ? 0 : -1} className={'dp' + (p.id === cur.id ? ' on' : '')} onClick={() => pick(p.id)} aria-current={p.id === cur.id ? 'page' : undefined}>
             <PIcon id={p.id} /><span>{label(p)}</span>{p.id === 'control' && liveNow > 0 && <i className="lv">{liveNow} live</i>}</button>)}
         </div>)}</nav>
-        <div className="drf"><button className="btn o sm" onClick={onBack}>← Scoreboard</button><button className="btn o sm danger" onClick={() => supabase.auth.signOut()}>Sign out</button></div>
+        <div className="drf"><button className="btn o sm" onClick={onBack}>← Halaman penonton</button><button className="btn o sm danger" onClick={() => supabase.auth.signOut()}>Keluar</button></div>
       </aside>
     </div>
     <div className="alay">
       <section className="apage">
         <header className={'aphead' + (cur.id === 'overview' ? ' hide' : '')}><div className="crumb">{cur.g.label} › {label(cur)}</div><h2>{label(cur)}</h2><p>{cur.hint}</p></header>
-        {cur.tour && (tours.length ? <div className="tbar"><label htmlFor="admtour">Tournament</label>
-          <select id="admtour" value={at} onChange={e => setAt(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name} · {genderLabel(t.gender)} {t.level}</option>)}</select>
-          <span className="chip">{tm.length} teams</span><span className="chip">{ms.length} matches</span></div>
-          : <div className="empty">Create a tournament first{admin ? '.' : ' (ask an admin).'}{admin && <button className="btn" onClick={() => go('tournaments')}>Create a tournament</button>}</div>)}
+        {cur.tour && (tours.length ? <div className="tbar"><label htmlFor="admtour">Kategori</label>
+          <select id="admtour" value={at} onChange={e => setAt(e.target.value)}>{tours.map(x => <option key={x.id} value={x.id}>{x.name}{tourSub(x) ? ' · ' + tourSub(x) : ''}</option>)}</select>
+          <span className="chip">{tm.length} tim</span><span className="chip">{ms.length} pertandingan</span></div>
+          : <div className="empty">Buat kategori dulu{admin ? '.' : ' (minta admin).'}{admin && <button className="btn" onClick={() => go('tournaments')}>Buat kategori</button>}</div>)}
         {(!cur.tour || (tours.length > 0 && at)) && <>
           {cur.id === 'overview' && <Dashboard me={me} admin={admin} matches={matches} teams={teams} tours={tours} ann={ann} settings={settings} go={go} openMatch={focus} />}
           {cur.id === 'scorer' && <ScorerHome matches={matches} settings={settings} />}
           {view && <Matches key={view} view={view} tm={tm} ms={ms} tid={at} admin={admin} run={run} load={load} settings={settings} focusId={focusId} onFocus={focus} go={go} />}
+          {cur.id === 'bracket' && admin && <BracketPage tour={tour} tm={tm} ms={ms} tid={at} courts={courts} settings={settings} run={run} load={load} onFocus={focus} />}
           {cur.id === 'announcements' && admin && <Announce ann={ann} run={run} />}
-          {cur.id === 'tournaments' && admin && <Tournaments tours={tours} run={run} />}
-          {cur.id === 'teams' && admin && <Teams tm={tm} ms={ms} tours={tours} tid={at} run={run} load={load} settings={settings} />}
+          {cur.id === 'tournaments' && admin && <Categories tours={tours} teams={teams} matches={matches} run={run} />}
+          {cur.id === 'teams' && admin && <Teams tm={tm} ms={ms} tid={at} run={run} load={load} settings={settings} />}
           {cur.id === 'standings' && admin && <StandingsPanel tours={tours} teams={teams} matches={matches} settings={settings} save={save} />}
           {cur.id === 'export' && admin && <ExportPanel tours={tours} teams={teams} matches={matches} at={at} onPrint={onPrint} />}
           {cur.id === 'site' && admin && <><SiteSettings settings={settings} save={save} /><EventSettings settings={settings} save={save} /></>}

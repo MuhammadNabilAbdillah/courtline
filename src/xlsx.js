@@ -43,3 +43,68 @@ export function makeXlsx(sheets) {
   ]
   return zip(files)
 }
+
+// ---------- Pembaca .xlsx (tanpa library): membaca sheet pertama menjadi array of array ----------
+const dec = new TextDecoder()
+async function inflate(data) {
+  const s = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+  return new Uint8Array(await new Response(s).arrayBuffer())
+}
+async function unzip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
+  let e = u8.length - 22
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--
+  if (e < 0) throw new Error('Bukan file Excel (.xlsx) yang valid')
+  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const ent = {}
+  for (let i = 0; i < n; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('File Excel rusak')
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true)
+    ent[dec.decode(u8.subarray(p + 46, p + 46 + nl))] = { method, csize, lho }
+    p += 46 + nl + el + cl
+  }
+  return async name => {
+    const f = ent[name]; if (!f) return null
+    const start = f.lho + 30 + dv.getUint16(f.lho + 26, true) + dv.getUint16(f.lho + 28, true), raw = u8.subarray(start, start + f.csize)
+    return dec.decode(f.method === 0 ? raw : await inflate(raw))
+  }
+}
+const unesc = s => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, k) => k[0] === '#' ? String.fromCodePoint(k[1].toLowerCase() === 'x' ? parseInt(k.slice(2), 16) : +k.slice(1)) : ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[k.toLowerCase()]))
+const texts = x => { let o = '', m; const re = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g; while ((m = re.exec(x))) o += m[1]; return unesc(o) }
+const colNo = ref => { let n = 0; for (const ch of /^[A-Z]+/i.exec(ref)[0].toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1 }
+
+export async function readXlsx(buf) {
+  const get = await unzip(buf)
+  const wb = await get('xl/workbook.xml'), rels = await get('xl/_rels/workbook.xml.rels')
+  if (!wb || !rels) throw new Error('Bukan file Excel (.xlsx) yang valid. Simpan sebagai "Excel Workbook (.xlsx)".')
+  const rid = (/<sheet\b[^>]*\br:id="([^"]+)"/.exec(wb) || [])[1]
+  let target = null
+  for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) if (m[0].includes(`Id="${rid}"`)) target = (/Target="([^"]+)"/.exec(m[0]) || [])[1]
+  if (!target) target = 'worksheets/sheet1.xml'
+  const path = target.startsWith('/') ? target.slice(1) : 'xl/' + target.replace(/^\.\//, '')
+  const sheet = await get(path); if (!sheet) throw new Error('Sheet pertama tidak ditemukan')
+  const ss = await get('xl/sharedStrings.xml'), shared = ss ? [...ss.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m => texts(m[1])) : []
+  const rows = []
+  for (const r of sheet.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    const rn = +((/\br="(\d+)"/.exec(r[1]) || [])[1] || rows.length + 1) - 1, cells = []
+    for (const c of (r[2] || '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const at = c[1], ref = (/\br="([A-Z]+\d+)"/i.exec(at) || [])[1], t = (/\bt="(\w+)"/.exec(at) || [])[1], body = c[2] || ''
+      if (!ref) continue
+      const v = (/<v>([\s\S]*?)<\/v>/.exec(body) || [])[1]
+      let val = ''
+      if (t === 's') val = shared[+v] ?? ''
+      else if (t === 'inlineStr') val = texts(body)
+      else if (v !== undefined) val = unesc(v)
+      cells[colNo(ref)] = String(val).trim()
+    }
+    rows[rn] = Array.from(cells, x => x ?? '')
+  }
+  return Array.from(rows, r => r || [])
+}
+
+// Template Excel untuk impor tim (sheet "Tim" dibaca; sheet "Petunjuk" hanya penjelasan)
+export function teamTemplate() {
+  return makeXlsx([
+    { name: 'Tim', rows: [['Pemain 1', 'Pemain 2', 'Nama Tim (opsional)', 'Grup (A/B/C)'], ['Andi', 'Budi', 'Tim Elang', 'A'], ['Candra', 'Dewi', 'Tim Rajawali', 'A'], ['Eko', 'Fajar', '', 'B']] },
+    { name: 'Petunjuk', rows: [['Petunjuk pengisian'], ['1. Isi sheet "Tim": satu tim per baris. Hapus 3 baris contoh sebelum mengisi.'], ['2. Pemain 1 dan Pemain 2 wajib diisi.'], ['3. Nama Tim boleh dikosongkan (otomatis "Pemain 1 x Pemain 2").'], ['4. Grup berisi satu huruf (A, B, C...). Boleh dikosongkan, nanti bisa diacak lewat tombol Acak grup.'], ['5. Simpan sebagai .xlsx lalu unggah di halaman Tim.']] }
+  ])
+}

@@ -1,13 +1,13 @@
 import { table } from './standings'
-import { tn, fmtDay, fmtTime, fmtFull, clock, rd, scoreText, genderLabel } from './util'
+import { tn, fmtDay, fmtTime, fmtFull, clock, rd, scoreText, tourSub, slotText } from './util'
 import { t } from './i18n'
 
 // Print-ready sheets. "Print / Save as PDF" opens the browser print dialog; choose "Save as PDF" there to get a PDF file.
 export default function PrintSheet({ kind, tours, teams, matches, tid, site, onClose }) {
   const ts = tid === 'all' ? tours : tours.filter(x => x.id === tid)
   const now = new Date()
-  const name = m => tn(m.t1) || m.slot1 || 'TBD'
-  const name2 = m => tn(m.t2) || m.slot2 || 'TBD'
+  const name = m => tn(m.t1) || slotText(m.slot1) || t('TBD')
+  const name2 = m => tn(m.t2) || slotText(m.slot2) || t('TBD')
   return <div className="pwrap">
     <div className="pbar">
       <button className="btn" onClick={() => window.print()}>{t('Print / Save as PDF')}</button>
@@ -16,7 +16,7 @@ export default function PrintSheet({ kind, tours, teams, matches, tid, site, onC
     </div>
     <div className="psheet">
       <header>
-        <h1>{site.name || 'Courtline'}</h1>
+        <h1>{site.name || 'Padel'}</h1>
         <h2>{kind === 'schedule' ? t('Match schedule') : t('Standings & results')}</h2>
         <p>{t('Printed')} {fmtFull(now)} · {clock(now)}</p>
       </header>
@@ -27,7 +27,7 @@ export default function PrintSheet({ kind, tours, teams, matches, tid, site, onC
         if (kind === 'schedule') {
           const days = [...new Set(ms.map(m => fmtDay(m.start_at)))]
           return <section key={tour.id}>
-            <h3>{tour.name} <small>{genderLabel(tour.gender)} · {tour.level}</small></h3>
+            <h3>{tour.name} <small>{tourSub(tour)}</small></h3>
             {days.map(d => <div key={d}><h4>{d}</h4>
               <table><thead><tr><th>{t('Time')}</th><th>{t('Court')}</th><th>{t('Team A')}</th><th>{t('Team B')}</th><th>{t('Round')}</th><th>{t('Score')}</th></tr></thead>
                 <tbody>{ms.filter(m => fmtDay(m.start_at) === d).map(m => <tr key={m.id}><td>{fmtTime(m.start_at)}</td><td>{m.court}</td><td><b>{name(m)}</b></td><td><b>{name2(m)}</b></td><td>{rd(m.round)}</td><td className="sc">{scoreText(m)}</td></tr>)}</tbody></table></div>)}
@@ -36,9 +36,9 @@ export default function PrintSheet({ kind, tours, teams, matches, tid, site, onC
         }
         const done = ms.filter(m => m.status === 'finished')
         return <section key={tour.id}>
-          <h3>{tour.name} <small>{genderLabel(tour.gender)} · {tour.level}</small></h3>
+          <h3>{tour.name} <small>{tourSub(tour)}</small></h3>
           {groups.map(g => <div key={g}><h4>{t('Group')} {g}</h4>
-            <table><thead><tr><th>#</th><th>{t('TEAM')}</th><th>{t('Players')}</th><th>G</th><th>W</th><th>L</th><th>{t('DIFF')}</th><th>{t('Pts')}</th></tr></thead>
+            <table><thead><tr><th>#</th><th>{t('TEAM')}</th><th>{t('Players')}</th><th>{t('G')}</th><th>{t('W')}</th><th>{t('L')}</th><th>{t('DIFF')}</th><th>{t('Pts')}</th></tr></thead>
               <tbody>{table(tm.filter(x => x.grp === g), ms).map((r, i) => <tr key={r.t.id}><td>{i + 1}</td><td><b>{tn(r.t)}</b></td><td>{r.t.player1} / {r.t.player2}</td><td>{r.g}</td><td>{r.w}</td><td>{r.l}</td><td>{r.diff}</td><td><b>{r.pts}</b></td></tr>)}</tbody></table></div>)}
           <h4>{t('Results')}</h4>
           {done.length ? <table><thead><tr><th>{t('Round')}</th><th>{t('Match')}</th><th>{t('Score')}</th><th>{t('Winner')}</th></tr></thead>

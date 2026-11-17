@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fmtDate, fmtTime, fmtDay, tn, activeCourts, scoreText, tourLabel } from './util'
-import { mname } from './AdminExtra'
+import { fmtTime, fmtDay, tn, activeCourts, scoreText, tourLabel, slotText } from './util'
+import { roundName } from './AdminMatches'
 import { table } from './standings'
 
 const I = {
@@ -19,18 +19,18 @@ const I = {
 }
 export const Svg = ({ k, cls = 'di' }) => <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{I[k]}</svg>
 
-const greet = () => { const h = new Date().getHours(); return h < 11 ? 'Good morning' : h < 15 ? 'Good afternoon' : h < 19 ? 'Good evening' : 'Good night' }
+const greet = () => { const h = new Date().getHours(); return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 19 ? 'Selamat sore' : 'Selamat malam' }
 
-// Progress ring (SVG) for the overall completion
+// Cincin progres keseluruhan
 function Ring({ pct }) {
   const r = 52, c = 2 * Math.PI * r
-  return <svg className="ring" viewBox="0 0 120 120" role="img" aria-label={`${pct}% played`}>
+  return <svg className="ring" viewBox="0 0 120 120" role="img" aria-label={`${pct}% selesai`}>
     <circle cx="60" cy="60" r={r} className="rt" /><circle cx="60" cy="60" r={r} className="rf" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} transform="rotate(-90 60 60)" />
-    <text x="60" y="58" textAnchor="middle" className="rn">{pct}%</text><text x="60" y="76" textAnchor="middle" className="rl">played</text>
+    <text x="60" y="58" textAnchor="middle" className="rn">{pct}%</text><text x="60" y="76" textAnchor="middle" className="rl">selesai</text>
   </svg>
 }
 
-const Teams2 = ({ m }) => <><b>{tn(m.t1) || m.slot1 || 'TBD'}</b><i>vs</i><b>{tn(m.t2) || m.slot2 || 'TBD'}</b></>
+const Teams2 = ({ m }) => <><b>{tn(m.t1) || slotText(m.slot1) || 'Belum ada'}</b><i>vs</i><b>{tn(m.t2) || slotText(m.slot2) || 'Belum ada'}</b></>
 
 export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go, openMatch }) {
   const [now, setNow] = useState(Date.now()), tmap = Object.fromEntries(tours.map(x => [x.id, tourLabel(x)]))
@@ -60,22 +60,29 @@ export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go,
 
   const courts = [...new Set([...activeCourts(settings), ...matches.filter(m => m.status === 'live').map(m => m.court)])]
   const alerts = [
-    D.late.length > 0 && { k: 'bad', t: `${D.late.length} match${D.late.length > 1 ? 'es are' : ' is'} past the start time and not started`, a: 'Open match control', to: 'control' },
-    D.empty > 0 && admin && { k: 'warn', t: `${D.empty} group match${D.empty > 1 ? 'es have' : ' has'} an empty team slot`, a: 'Fix in timetable', to: 'timetable' },
-    D.ties > 0 && admin && { k: 'warn', t: `${D.ties} finished group${D.ties > 1 ? 's are' : ' is'} still level — set the order by hand`, a: 'Open standings', to: 'standings' },
-    !tours.length && admin && { k: 'info', t: 'No tournament yet. Create one to get started.', a: 'Create tournament', to: 'tournaments' },
-    tours.length > 0 && !D.total && admin && { k: 'info', t: 'No matches yet. Generate the group fixtures.', a: 'Create matches', to: 'fixtures' }
+    D.late.length > 0 && { k: 'bad', t: `${D.late.length} pertandingan sudah lewat jam mulai tetapi belum dimulai`, a: 'Buka kontrol pertandingan', to: 'control' },
+    D.empty > 0 && admin && { k: 'warn', t: `${D.empty} pertandingan grup masih punya tim kosong`, a: 'Perbaiki di Atur Jadwal', to: 'timetable' },
+    D.ties > 0 && admin && { k: 'warn', t: `${D.ties} grup sudah selesai tetapi masih seri, urutkan secara manual`, a: 'Buka klasemen', to: 'standings' },
+    !tours.length && admin && { k: 'info', t: 'Belum ada kategori. Buat satu untuk memulai.', a: 'Buat kategori', to: 'tournaments' },
+    tours.length > 0 && !D.total && admin && { k: 'info', t: 'Belum ada pertandingan. Buat jadwal babak grup.', a: 'Buat jadwal', to: 'fixtures' }
   ].filter(Boolean)
   const kpi = [
-    ['teams', teams.length, 'Teams', ''], ['matches', D.total, 'Matches', ''], ['live', D.live.length, 'Live now', D.live.length ? 'hot' : ''],
-    ['done', D.done.length, 'Finished', 'ok'], ['todo', D.todo.length, 'To play', ''], ['late', D.late.length, 'Late', D.late.length ? 'bad' : '']
+    ['teams', teams.length, 'Tim', ''], ['matches', D.total, 'Pertandingan', ''], ['live', D.live.length, 'Sedang live', D.live.length ? 'hot' : ''],
+    ['done', D.done.length, 'Selesai', 'ok'], ['todo', D.todo.length, 'Belum main', ''], ['late', D.late.length, 'Terlambat', D.late.length ? 'bad' : '']
   ]
   const actions = [
-    ['ctl', 'Match control', 'Start, score & correct', 'control', true], ['score', 'Scorer', 'Full-screen court scoring', 'scorer', true],
-    ['ann', 'Announcement', 'Message to all viewers', 'announcements', false], ['add', 'Create matches', 'Fixtures & knockout', 'fixtures', false],
-    ['teams', 'Teams', 'Add, import, draw groups', 'teams', false], ['rank', 'Standings', 'Group tables', 'standings', false]
+    ['ctl', 'Kontrol Pertandingan', 'Mulai, skor, dan koreksi', 'control', true], ['score', 'Skor Lapangan', 'Layar skor penuh per lapangan', 'scorer', true],
+    ['ann', 'Pengumuman', 'Pesan untuk semua penonton', 'announcements', false], ['add', 'Buat Jadwal', 'Jadwal babak grup', 'fixtures', false],
+    ['teams', 'Tim & Pemain', 'Tambah, impor Excel, acak grup', 'teams', false], ['rank', 'Bagan', 'Semifinal dan final', 'bracket', false]
   ].filter(a => a[4] || admin)
   const active = ann.filter(a => a.active)
+  const steps = [
+    { ok: tours.length > 0, t: 'Buat kategori', d: 'Mis. Bronze, Beginner, Amatir.', a: 'Buat kategori', to: 'tournaments' },
+    { ok: teams.length > 0, t: 'Masukkan tim', d: 'Tambah manual atau impor dari Excel, lalu acak grup.', a: 'Isi tim', to: 'teams' },
+    { ok: matches.some(m => m.round === 'Group Stage'), t: 'Buat jadwal babak grup', d: 'Jadwal dan lapangan dibuat otomatis.', a: 'Buat jadwal', to: 'fixtures' },
+    { ok: D.done.length > 0 || D.live.length > 0, t: 'Mulai pertandingan', d: 'Gunakan Skor Lapangan atau Kontrol Pertandingan.', a: 'Mulai', to: 'control' },
+    { ok: matches.some(m => m.round !== 'Group Stage'), t: 'Susun bagan semifinal & final', d: 'Acak, atur manual, atau dari klasemen grup.', a: 'Buat bagan', to: 'bracket' }
+  ]
 
   return <div className="dash">
     <section className="dhero">
@@ -84,62 +91,65 @@ export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go,
         <h2>{greet()}, {me.username}</h2>
         <p>{settings.name}{settings.venue ? ` · ${settings.venue}` : ''}{settings.dates ? ` · ${settings.dates}` : ''}</p>
         <div className="dh-m">
-          {D.live.length > 0 ? <span className="pill hot"><i />{D.live.length} match{D.live.length > 1 ? 'es' : ''} live now</span> : <span className="pill">No match live right now</span>}
-          {D.next[0] && <span className="pill">Next {fmtTime(D.next[0].start_at)} · {D.next[0].court}</span>}
-          {D.end > 0 && <span className="pill">Ends about {fmtTime(D.end)}</span>}
+          {D.live.length > 0 ? <span className="pill hot"><i />{D.live.length} pertandingan live sekarang</span> : <span className="pill">Belum ada pertandingan live</span>}
+          {D.next[0] && <span className="pill">Berikutnya {fmtTime(D.next[0].start_at)} · {D.next[0].court}</span>}
+          {D.end > 0 && <span className="pill">Selesai sekitar {fmtTime(D.end)}</span>}
         </div>
       </div>
       <Ring pct={D.pct} />
     </section>
 
+    {admin && steps.some(x => !x.ok) && <section className="dcard guide"><div className="dch"><h3>Panduan mulai cepat</h3><span className="muted">{steps.filter(x => x.ok).length}/{steps.length} langkah selesai</span></div>
+      <ol className="gl">{steps.map((x, i) => <li key={x.to} className={x.ok ? 'ok' : (i === steps.findIndex(y => !y.ok) ? 'now' : '')}><span className="gn">{x.ok ? '✓' : i + 1}</span><div><b>{x.t}</b><small>{x.d}</small></div>{!x.ok && <button className="btn sm o" onClick={() => go(x.to)}>{x.a}</button>}</li>)}</ol></section>}
+
     <section className="kpis">{kpi.map(([ic, n, l, c]) => <div key={l} className={'kpi ' + c}><span className="ki"><Svg k={ic} /></span><div><b>{n}</b><small>{l}</small></div></div>)}</section>
 
-    {alerts.length > 0 && <section className="dcard alerts"><h3>Needs attention</h3>{alerts.map((a, i) => <div key={i} className={'al ' + a.k}><span className="ad" /><p>{a.t}</p><button className="btn sm o" onClick={() => go(a.to)}>{a.a}</button></div>)}</section>}
+    {alerts.length > 0 && <section className="dcard alerts"><h3>Perlu perhatian</h3>{alerts.map((a, i) => <div key={i} className={'al ' + a.k}><span className="ad" /><p>{a.t}</p><button className="btn sm o" onClick={() => go(a.to)}>{a.a}</button></div>)}</section>}
 
     <div className="dgrid">
-      <section className="dcard span2"><div className="dch"><h3>Courts</h3><span className="muted">{courts.length} active</span></div>
+      <section className="dcard span2"><div className="dch"><h3>Lapangan</h3><span className="muted">{courts.length} aktif</span></div>
         {courts.length ? <div className="cgrid">{courts.map(c => {
           const l = matches.find(m => m.court === c && m.status === 'live'), n = matches.filter(m => m.court === c && m.status === 'scheduled').sort((a, b) => new Date(a.start_at) - new Date(b.start_at))[0]
           const sc = l && scoreText(l)
           return <div key={c} className={'cc' + (l ? ' on' : '')}>
-            <div className="cch"><b>{c}</b><span className={'tag' + (l ? ' live' : '')}>{l ? 'LIVE' : 'Free'}</span></div>
+            <div className="cch"><b>{c}</b><span className={'tag' + (l ? ' live' : '')}>{l ? 'LIVE' : 'Kosong'}</span></div>
             {l ? <button className="ccm" onClick={() => openMatch(l.id)}><span className="tms"><Teams2 m={l} /></span><span className="sc">{sc}</span></button>
-              : <p className="muted">{n ? `Next ${fmtTime(n.start_at)}` : 'Nothing scheduled'}</p>}
-            {l && n && <small className="muted">Next {fmtTime(n.start_at)}</small>}
+              : <p className="muted">{n ? `Berikutnya ${fmtTime(n.start_at)}` : 'Belum ada jadwal'}</p>}
+            {l && n && <small className="muted">Berikutnya {fmtTime(n.start_at)}</small>}
           </div>
-        })}</div> : <p className="muted">No courts set up. Add them in Rules & courts.</p>}
+        })}</div> : <p className="muted">Belum ada lapangan. Tambahkan di Aturan & Lapangan.</p>}
       </section>
 
-      <section className="dcard"><div className="dch"><h3>Quick actions</h3></div>
+      <section className="dcard"><div className="dch"><h3>Menu cepat</h3></div>
         <div className="qa">{actions.map(([ic, t, s, to]) => <button key={to} onClick={() => go(to)}><span className="ki"><Svg k={ic} /></span><span><b>{t}</b><small>{s}</small></span><Svg k="go" cls="di arr" /></button>)}</div>
       </section>
 
-      <section className="dcard"><div className="dch"><h3>Up next</h3><button className="link" onClick={() => go('control')}>All</button></div>
+      <section className="dcard"><div className="dch"><h3>Pertandingan berikutnya</h3><button className="link" onClick={() => go('control')}>Semua</button></div>
         {D.next.length ? <ul className="ml">{D.next.slice(0, 6).map(m => <li key={m.id}>
           <div className="mt"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small></div>
-          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{m.round}{tmap[m.tournament_id] && tours.length > 1 ? ` · ${tmap[m.tournament_id]}` : ''}</small></div>
-          {+new Date(m.start_at) < now - 5 * 6e4 && <span className="tag bad">Late</span>}
-        </li>)}</ul> : <p className="muted">No matches left to play.</p>}
+          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{roundName(m.round)}{tmap[m.tournament_id] && tours.length > 1 ? ` · ${tmap[m.tournament_id]}` : ''}</small></div>
+          {+new Date(m.start_at) < now - 5 * 6e4 && <span className="tag bad">Terlambat</span>}
+        </li>)}</ul> : <p className="muted">Tidak ada pertandingan yang tersisa.</p>}
       </section>
 
-      <section className="dcard"><div className="dch"><h3>Recent results</h3><button className="link" onClick={() => go('control')}>All</button></div>
+      <section className="dcard"><div className="dch"><h3>Hasil terbaru</h3><button className="link" onClick={() => go('matchhist')}>Semua</button></div>
         {D.recent.length ? <ul className="ml">{D.recent.map(m => <li key={m.id}>
           <div className="mt"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small></div>
-          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{m.round}{m.wo ? ' · WO' : ''}</small></div>
+          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{roundName(m.round)}{m.wo ? ' · WO' : ''}</small></div>
           <span className="sc2">{scoreText(m).replace('  WO', '')}</span>
-        </li>)}</ul> : <p className="muted">No finished matches yet.</p>}
+        </li>)}</ul> : <p className="muted">Belum ada pertandingan selesai.</p>}
       </section>
 
-      <section className="dcard span2"><div className="dch"><h3>Progress by tournament</h3><span className="muted">{D.done.length}/{D.total} matches</span></div>
+      <section className="dcard span2"><div className="dch"><h3>Progres per kategori</h3><span className="muted">{D.done.length}/{D.total} pertandingan</span></div>
         {D.perTour.length ? <div className="tp2">{D.perTour.map(x => <div key={x.tr.id} className="tpr">
-          <div className="tpn"><b>{tourLabel(x.tr)}</b><small>{x.teams} teams · {x.done}/{x.total} matches{x.live ? ` · ${x.live} live` : ''}</small></div>
+          <div className="tpn"><b>{tourLabel(x.tr)}</b><small>{x.teams} tim · {x.done}/{x.total} pertandingan{x.live ? ` · ${x.live} live` : ''}</small></div>
           <div className="bar2"><i style={{ width: x.pct + '%' }} /></div><span className="pc">{x.pct}%</span>
-        </div>)}</div> : <p className="muted">No tournaments yet.</p>}
+        </div>)}</div> : <p className="muted">Belum ada kategori.</p>}
       </section>
 
-      <section className="dcard"><div className="dch"><h3>Announcements</h3>{admin && <button className="link" onClick={() => go('announcements')}>Manage</button>}</div>
-        {active.length ? active.slice(0, 3).map(a => <div key={a.id} className={'ann2 ' + (a.level === 'warning' ? 'w' : '')}><b>{a.level === 'warning' ? 'Important' : 'Notice'}</b><p>{a.message}</p></div>)
-          : <p className="muted">No announcement is showing to viewers.</p>}
+      <section className="dcard"><div className="dch"><h3>Pengumuman</h3>{admin && <button className="link" onClick={() => go('announcements')}>Kelola</button>}</div>
+        {active.length ? active.slice(0, 3).map(a => <div key={a.id} className={'ann2 ' + (a.level === 'warning' ? 'w' : '')}><b>{a.level === 'warning' ? 'Penting' : 'Info'}</b><p>{a.message}</p></div>)
+          : <p className="muted">Tidak ada pengumuman yang sedang tampil.</p>}
       </section>
     </div>
   </div>
