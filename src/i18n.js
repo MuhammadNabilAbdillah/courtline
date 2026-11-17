@@ -37,6 +37,8 @@ export const ID = {
   "Download image": "Unduh gambar",
   "EVENT INFO": "INFO ACARA",
   "Exit": "Keluar",
+  "Fullscreen": "Layar penuh",
+  "Exit fullscreen": "Keluar layar penuh",
   "FINAL": "SELESAI",
   "Final": "Final",
   "Find my team": "Cari tim saya",

@@ -149,16 +149,43 @@ function Results({ matches, favs }) {
   </>
 }
 
+// Layar penuh untuk mode TV. Harus dipanggil dari klik pengguna (browser mewajibkan gesture).
+const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement)
+const fsEnter = () => { const e = document.documentElement; try { return (e.requestFullscreen || e.webkitRequestFullscreen)?.call(e)?.catch?.(() => {}) } catch { /* tidak didukung */ } }
+const fsExit = () => { if (!fsOn()) return; try { (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)?.catch?.(() => {}) } catch { /* abaikan */ } }
+
 function TV({ matches, ann, site, exit }) {
-  const live = matches.filter(m => m.status === 'live'), next = matches.filter(m => m.status === 'scheduled').slice(0, 3)
+  const live = matches.filter(m => m.status === 'live')
   const url = location.origin + location.pathname
+  const [full, setFull] = useState(fsOn())
+  useEffect(() => { // sinkron saat pengguna menekan Esc / F11
+    const f = () => setFull(fsOn())
+    document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f)
+    return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); fsExit() }
+  }, [])
+  useEffect(() => { // layar TV tidak boleh mati/redup selama mode ini aktif
+    let lock = null, dead = false
+    const get = () => navigator.wakeLock?.request('screen').then(l => { if (dead) l.release(); else lock = l }).catch(() => {})
+    const vis = () => { if (document.visibilityState === 'visible') get() }
+    get(); document.addEventListener('visibilitychange', vis)
+    return () => { dead = true; document.removeEventListener('visibilitychange', vis); lock?.release().catch(() => {}) }
+  }, [])
+  const hideCursor = useRef(null)
+  useEffect(() => { // sembunyikan kursor setelah diam 3 detik
+    const root = document.documentElement, show = () => { root.classList.remove('nocur'); clearTimeout(hideCursor.current); hideCursor.current = setTimeout(() => root.classList.add('nocur'), 3000) }
+    show(); window.addEventListener('mousemove', show)
+    return () => { window.removeEventListener('mousemove', show); clearTimeout(hideCursor.current); root.classList.remove('nocur') }
+  }, [])
   return <div className="tv">
     <div className="tvh"><Brand site={site} /><Clock />
       <div className="tvq"><QRCode text={url} px={92} /><span>{t('Scan to open the live scores on your phone')}</span></div>
-      <button className="btn g" onClick={exit}>{t('Exit')}</button></div>
+      <div className="tvb">
+        <button className="btn g" onClick={() => full ? fsExit() : fsEnter()}>{full ? t('Exit fullscreen') : t('Fullscreen')}</button>
+        <button className="btn g" onClick={() => { fsExit(); exit() }}>{t('Exit')}</button>
+      </div></div>
     <AnnounceBar items={ann} tv />
-    <h3 className="sec">{t('Live')}</h3>{live.length ? <div className="grid">{live.map(m => <Card key={m.id} m={m} plain />)}</div> : <p>{t('No live matches.')}</p>}
-    {next.length > 0 && <><h3 className="sec">{t('Up next')}</h3><div className="grid">{next.map(m => <Card key={m.id} m={m} plain />)}</div></>}
+    <h3 className="sec">{t('Live')}</h3>
+    {live.length ? <div className={'grid tvlive' + (live.length === 1 ? ' one' : '')}>{live.map(m => <Card key={m.id} m={m} plain />)}</div> : <p className="tvempty">{t('No live matches.')}</p>}
   </div>
 }
 
@@ -205,7 +232,7 @@ export default function App() {
   const toggle = id => setFavs(f => { const n = f.includes(id) ? f.filter(x => x !== id) : [...f, id]; writeFavs(n); return n })
   const flip = () => { const n = theme === 'dark' ? 'light' : 'dark'; setTheme(n); try { localStorage.setItem('cl-theme', n) } catch { /* mode privat */ } }
   const switchLang = () => { const n = lang === 'id' ? 'en' : 'id'; setLang(n); setLangS(n) }
-  const nav = k => { setMore(false); if (location.hash) location.hash = ''; setTab(k) }
+  const nav = k => { setMore(false); if (location.hash) location.hash = ''; if (k === 'tv') fsEnter(); setTab(k) }
 
   const tmap = Object.fromEntries(d.tours.map(x => [x.id, tourLabel(x)]))
   const all = d.matches.map(m => ({ ...m, tname: tmap[m.tournament_id] }))

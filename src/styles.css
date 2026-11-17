@@ -524,3 +524,11 @@ body.scoring{overflow:hidden}
 :root[data-theme=dark] .warnline{background:#3a2a10;color:#ffcf8a}
 .wipe{margin-top:1.4rem;padding-top:1rem;border-top:1px dashed var(--line)}.wipe h3{font:800 .95rem var(--hf);margin:0 0 .3rem}
 .wipe{margin-top:1.4rem;padding-top:1rem;border-top:1px dashed var(--line)}.wipe h3{font:800 .95rem var(--hf);margin:0 0 .3rem}
+
+/* TV: fokus ke skor live, memenuhi layar */
+.tv{min-height:100vh;display:flex;flex-direction:column}.tvb{display:flex;gap:.5rem}
+.tv .tvlive{flex:1;align-content:start;grid-template-columns:repeat(auto-fit,minmax(min(100%,28rem),1fr));zoom:1.15}
+.tv .tvlive.one{grid-template-columns:minmax(0,56rem);justify-content:center;zoom:1.5}
+@media(min-width:1600px){.tv .tvlive{zoom:1.5}.tv .tvlive.one{zoom:2}}
+.tvempty{font-size:1.4rem;opacity:.85}
+html.nocur,html.nocur *{cursor:none!important}
