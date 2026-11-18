@@ -201,7 +201,7 @@ function useHash() {
 const shade = (hex, k) => '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('')
 
 export default function App() {
-  const [tab, setTab] = useState('home'), [tid, setTid] = useState('all'), d = useData(), first = useRef(true)
+  const [tab, setTab] = useState(() => location.hash === '#/admin' ? 'admin' : 'home'), [tid, setTid] = useState('all'), d = useData(), first = useRef(true)
   const [favs, setFavs] = useState(readFavs), [print, setPrint] = useState(null), [, bump] = useState(0), [now, setNow] = useState(Date.now())
   const [lang, setLangS] = useState(getLang()), [more, setMore] = useState(false)
   const [theme, setTheme] = useState(() => { try { const s = localStorage.getItem('cl-theme'); if (s) return s } catch { /* no storage */ } return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light' })
@@ -227,6 +227,7 @@ export default function App() {
     document.getElementById('content')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [tab])
   useEffect(() => { if (route) window.scrollTo(0, 0) }, [hash])
+  useEffect(() => { if (hash === '#/admin') setTab('admin') }, [hash]) // tautan #/admin selalu membuka halaman admin, yang meminta login dulu
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(i) }, [])
 
   const toggle = id => setFavs(f => { const n = f.includes(id) ? f.filter(x => x !== id) : [...f, id]; writeFavs(n); return n })

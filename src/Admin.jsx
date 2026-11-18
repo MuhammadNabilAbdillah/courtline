@@ -14,7 +14,7 @@ import { Matches } from './AdminMatches'
 import { Teams, Categories } from './AdminTeams'
 import { BracketPage } from './AdminBracket'
 
-function Login({ onBack }) {
+function Login({ onBack, notice }) {
   const [u, setU] = useState(''), [p, setP] = useState(''), [show, setShow] = useState(false), [err, setErr] = useState(''), [busy, setBusy] = useState(false)
   const go = async e => {
     e.preventDefault(); setBusy(true); setErr('')
@@ -33,6 +33,7 @@ function Login({ onBack }) {
       <label className="fl">Nama pengguna<input autoCapitalize="none" autoComplete="username" required value={u} onChange={e => setU(e.target.value)} placeholder="admin" /></label>
       <label className="fl">Password<div className="pw"><input type={show ? 'text' : 'password'} autoComplete="current-password" required value={p} onChange={e => setP(e.target.value)} placeholder="••••••••" />
         <button type="button" className="link" onClick={() => setShow(!show)}>{show ? 'Sembunyikan' : 'Lihat'}</button></div></label>
+      {notice && !err && <div className="muted">{notice}</div>}
       {err && <div className="err">{err}</div>}
       <button className="btn big" disabled={busy}>{busy ? 'Sedang masuk…' : 'Masuk'}</button>
       <small className="muted">Khusus panitia yang berwenang.</small>
@@ -170,6 +171,24 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
     const { data } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
     return () => data.subscription.unsubscribe()
   }, [])
+  // Keluar otomatis jika tidak ada aktivitas (admin 30 menit, penjaga skor 2 jam). Ditunda selama masih ada skor belum terkirim.
+  const obRef = useRef(ob); obRef.current = ob
+  const [notice, setNotice] = useState('')
+  useEffect(() => {
+    if (!me) return
+    const limit = (me.role === 'admin' ? 30 : 120) * 6e4
+    let last = Date.now()
+    const touch = () => { last = Date.now() }
+    const check = () => {
+      if (Date.now() - last > limit && !obRef.current.ops) { setNotice('Kamu keluar otomatis karena lama tidak aktif. Silakan masuk lagi.'); supabase.auth.signOut() }
+    }
+    const vis = () => { if (!document.hidden) check() } // cek langsung saat tab dibuka kembali, bukan menunggu timer
+    const evs = ['pointerdown', 'keydown', 'touchstart', 'scroll']
+    evs.forEach(e => window.addEventListener(e, touch, { passive: true }))
+    document.addEventListener('visibilitychange', vis)
+    const i = setInterval(check, 30000)
+    return () => { evs.forEach(e => window.removeEventListener(e, touch)); document.removeEventListener('visibilitychange', vis); clearInterval(i) }
+  }, [me && me.user_id])
   useEffect(() => {
     if (!session) return setMe(null)
     supabase.from('staff').select('*').eq('user_id', session.user.id).maybeSingle().then(r => setMe(r.data || false))
@@ -219,9 +238,9 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
   }, [menu])
 
   if (session === undefined) return null
-  if (!session) return <Login onBack={onBack} />
+  if (!session) return <Login onBack={onBack} notice={notice} />
   if (me === null) return <p className="muted">Memuat…</p>
-  if (me === false) return <div className="empty">Akun ini tidak punya akses panitia.<br /><button className="btn" onClick={() => supabase.auth.signOut()}>Keluar</button></div>
+  if (me === false) return <div className="empty">Akun ini tidak punya akses panitia.<br /><button className="btn" onClick={() => { setNotice(''); supabase.auth.signOut() }}>Keluar</button></div>
   const admin = me.role === 'admin'
   const run = async (p, act, detail) => { const { error } = await p; if (error) alert(error.message + (/check constraint|violates/i.test(error.message) ? '\n\nJalankan supabase.sql terbaru di Supabase > SQL Editor, lalu coba lagi.' : '')); else if (act) log(act, detail); load(); return !error }
   const save = async (patch, act, detail) => {
@@ -256,7 +275,7 @@ export default function Admin({ matches: serverMatches, teams, tours, ann = [], 
           {g.pages.map(p => <button key={p.id} tabIndex={menu ? 0 : -1} className={'dp' + (p.id === cur.id ? ' on' : '')} onClick={() => pick(p.id)} aria-current={p.id === cur.id ? 'page' : undefined}>
             <PIcon id={p.id} /><span>{label(p)}</span>{p.id === 'control' && liveNow > 0 && <i className="lv">{liveNow} live</i>}</button>)}
         </div>)}</nav>
-        <div className="drf"><button className="btn o sm" onClick={onBack}>← Halaman penonton</button><button className="btn o sm danger" onClick={() => supabase.auth.signOut()}>Keluar</button></div>
+        <div className="drf"><button className="btn o sm" onClick={onBack}>← Halaman penonton</button><button className="btn o sm danger" onClick={() => { if (ob.ops && !confirm(`Masih ada ${ob.ops} poin belum terkirim dari HP ini. Jika keluar, poin baru dikirim setelah login lagi. Tetap keluar?`)) return; setNotice(''); supabase.auth.signOut() }}>Keluar</button></div>
       </aside>
     </div>
     <div className="alay">

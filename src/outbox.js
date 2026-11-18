@@ -34,6 +34,10 @@ export async function flush() {
   busy = true; emit()
   let retry = false
   try {
+    // Tanpa sesi login (mis. tab baru, sesi habis), server menolak tulis dan antrean akan terhapus sebagai "tidak ada izin".
+    // Jadi tahan dulu: skor tetap tersimpan di HP dan dikirim otomatis setelah panitia login lagi.
+    const ses = await supabase.auth.getSession().then(r => r.data.session, () => null)
+    if (!ses) throw new Error('no session')
     for (const id of Object.keys(q)) {
       const it = q[id]; if (!it) continue
       const v = it.v
@@ -61,6 +65,7 @@ export function enqueue(m, patch, ops = 1) {
 export const overlay = (ms, items) => (Object.keys(items).length ? ms.map(m => (items[m.id] ? { ...m, ...items[m.id].patch } : m)) : ms)
 
 if (typeof window !== 'undefined') {
+  supabase.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_IN') setTimeout(flush, 0) }) // kirim antrean begitu login kembali
   window.addEventListener('online', () => flush())
   document.addEventListener('visibilitychange', () => { if (!document.hidden) flush() })
   setInterval(() => { if (Object.keys(q).length) flush() }, 6000)
