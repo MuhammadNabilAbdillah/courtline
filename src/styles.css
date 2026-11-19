@@ -1,8 +1,8 @@
 html{font-size:clamp(15px,.4vw + 12.5px,20px);scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 <<<<<<< HEAD
-:root{--b:#0000ff;--bd:#0000b2;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
+:root{--b:#032a5f;--bd:#021d45;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
 =======
-:root{--b:#0000ff;--bd:#0000b3;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
+:root{--b:#032a5f;--bd:#021d45;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
 >>>>>>> d12345a (Ganti warna utama ke biru baru)
 *{box-sizing:border-box}html,body{overflow-x:hidden}
 body{margin:0;font-family:var(--bf);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}

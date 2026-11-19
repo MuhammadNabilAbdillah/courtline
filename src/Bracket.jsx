@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { tn, rule, fmtTime, rd, slotText } from './util'
 import { t } from './i18n'
 
-let NAVY = '#0000ff'
+let NAVY = '#032a5f'
 const LINE = '#c9d5e8', MUTE = '#66779a', FF = "Sora, 'Segoe UI', Arial, sans-serif"
 export const ORDER = ['Round of 16', 'Quarterfinal', 'Semifinal', 'Final']
 const score = (m, i) => m.status === 'scheduled' ? '' : [...m.sets.map(s => s[i]), ...(m.status === 'live' ? [m.scoring === 'race' ? m.p[i] : m.g[i]] : [])].join(' ')
@@ -35,7 +35,7 @@ function download(svg, W, H, name) {
 // Bracket drawn as an SVG picture (zoomable, downloadable as PNG, tap a match to edit when onPick is given)
 export function BracketView({ matches, onPick, title = 'Bracket', virtual, note }) {
   const [z, setZ] = useState(() => window.innerWidth < 640 ? .7 : 1), ref = useRef()
-  NAVY = getComputedStyle(document.documentElement).getPropertyValue('--b').trim() || '#0000ff' // follows the brand colour from Settings
+  NAVY = getComputedStyle(document.documentElement).getPropertyValue('--b').trim() || '#032a5f' // follows the brand colour from Settings
   const tbd = t('TBD'), liveTxt = t('LIVE')
   const ko = matches.filter(m => m.round !== 'Group Stage' && m.round !== 'Third Place')
   const rounds = ORDER.filter(r => ko.some(m => m.round === r))

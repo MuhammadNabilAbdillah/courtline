@@ -2,7 +2,7 @@ import { getLang, t } from './i18n'
 
 // ---- site configuration (set from Admin > Settings, applied at runtime) ----
 export const DEFAULT_COURTS = ['Court 1', 'Court 2', 'Court 3', 'Court 4']
-export const DEFAULTS = { name: 'HIPMI BONTANG PADEL CUP 2026', logo: '', color: '#0000ff', venue: 'Vamos Arena Fit', dates: '5 & 6 Desember 2026', event: {}, rankOverrides: {}, tz: 'Asia/Makassar', hour12: false, fmt: 'race6', golden: true, duration: 30, courts: [], autoLock: false }
+export const DEFAULTS = { name: 'HIPMI BONTANG PADEL CUP 2026', logo: '', color: '#032a5f', venue: 'Vamos Arena Fit', dates: '5 & 6 Desember 2026', event: {}, rankOverrides: {}, tz: 'Asia/Makassar', hour12: false, fmt: 'race6', golden: true, duration: 30, courts: [], autoLock: false }
 export const cfg = { tz: DEFAULTS.tz, hour12: false, name: DEFAULTS.name }
 export const setCfg = o => Object.assign(cfg, o)
 export const TZS = [['Asia/Jakarta', 'WIB (UTC+7)'], ['Asia/Makassar', 'WITA (UTC+8)'], ['Asia/Jayapura', 'WIT (UTC+9)'], ['Asia/Singapore', 'Singapore (UTC+8)'], ['UTC', 'UTC']]
