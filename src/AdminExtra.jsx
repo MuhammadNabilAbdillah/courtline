@@ -112,7 +112,7 @@ export function SiteSettings({ settings, save }) {
       <input maxLength={60} placeholder="Tanggal, mis. 5 & 6 Desember 2026 (opsional)" value={f.dates} onChange={e => setF({ ...f, dates: e.target.value })} />
       <input maxLength={60} placeholder="Lokasi (opsional)" value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} />
       <label className="colorp">Warna utama <input type="color" value={ok ? f.color : DEFAULTS.color} onChange={e => setF({ ...f, color: e.target.value })} /></label>
-      <input placeholder="#032a5f" maxLength={7} value={f.color} onChange={e => setF({ ...f, color: e.target.value })} />
+      <input placeholder="#0000ff" maxLength={7} value={f.color} onChange={e => setF({ ...f, color: e.target.value })} />
       <label className="btn o">Pilih logo<input type="file" accept="image/*" hidden onChange={pick} /></label>
       {f.logo && <button className="btn o" onClick={() => setF({ ...f, logo: '' })}>Hapus logo</button>}
       <button className="btn o" onClick={() => setF({ ...f, color: DEFAULTS.color })}>Reset warna</button>
