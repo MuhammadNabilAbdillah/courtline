@@ -107,7 +107,8 @@ export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go,
     {alerts.length > 0 && <section className="dcard alerts"><h3>Perlu perhatian</h3>{alerts.map((a, i) => <div key={i} className={'al ' + a.k}><span className="ad" /><p>{a.t}</p><button className="btn sm o" onClick={() => go(a.to)}>{a.a}</button></div>)}</section>}
 
     <div className="dgrid">
-      <section className="dcard span2"><div className="dch"><h3>Lapangan</h3><span className="muted">{courts.length} aktif</span></div>
+      <div className="dmain">
+      <section className="dcard"><div className="dch"><h3>Lapangan</h3><span className="muted">{courts.length} aktif</span></div>
         {courts.length ? <div className="cgrid">{courts.map(c => {
           const l = matches.find(m => m.court === c && m.status === 'live'), n = matches.filter(m => m.court === c && m.status === 'scheduled').sort((a, b) => new Date(a.start_at) - new Date(b.start_at))[0]
           const sc = l && scoreText(l)
@@ -119,19 +120,13 @@ export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go,
           </div>
         })}</div> : <p className="muted">Belum ada lapangan. Tambahkan di Aturan & Lapangan.</p>}
       </section>
-
-      <section className="dcard"><div className="dch"><h3>Menu cepat</h3></div>
-        <div className="qa">{actions.map(([ic, t, s, to]) => <button key={to} onClick={() => go(to)}><span className="ki"><Svg k={ic} /></span><span><b>{t}</b><small>{s}</small></span><Svg k="go" cls="di arr" /></button>)}</div>
-      </section>
-
+      <div className="dpair">
       <section className="dcard"><div className="dch"><h3>Pertandingan berikutnya</h3><button className="link" onClick={() => go('control')}>Semua</button></div>
         {D.next.length ? <ul className="ml">{D.next.slice(0, 6).map(m => <li key={m.id}>
           <div className="mt"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small></div>
-          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{roundName(m.round)}{tmap[m.tournament_id] && tours.length > 1 ? ` · ${tmap[m.tournament_id]}` : ''}</small></div>
-          {+new Date(m.start_at) < now - 5 * 6e4 && <span className="tag bad">Terlambat</span>}
+          <div className="mb"><span className="tms"><Teams2 m={m} /></span><small>{+new Date(m.start_at) < now - 5 * 6e4 && <span className="tag bad">Terlambat</span>}{roundName(m.round)}{tmap[m.tournament_id] && tours.length > 1 ? ` · ${tmap[m.tournament_id]}` : ''}</small></div>
         </li>)}</ul> : <p className="muted">Tidak ada pertandingan yang tersisa.</p>}
       </section>
-
       <section className="dcard"><div className="dch"><h3>Hasil terbaru</h3><button className="link" onClick={() => go('matchhist')}>Semua</button></div>
         {D.recent.length ? <ul className="ml">{D.recent.map(m => <li key={m.id}>
           <div className="mt"><b>{fmtTime(m.start_at)}</b><small>{m.court}</small></div>
@@ -139,18 +134,23 @@ export function Dashboard({ me, admin, matches, teams, tours, ann, settings, go,
           <span className="sc2">{scoreText(m).replace('  WO', '')}</span>
         </li>)}</ul> : <p className="muted">Belum ada pertandingan selesai.</p>}
       </section>
-
-      <section className="dcard span2"><div className="dch"><h3>Progres per kategori</h3><span className="muted">{D.done.length}/{D.total} pertandingan</span></div>
+      </div>
+      <section className="dcard"><div className="dch"><h3>Progres per kategori</h3><span className="muted">{D.done.length}/{D.total} pertandingan</span></div>
         {D.perTour.length ? <div className="tp2">{D.perTour.map(x => <div key={x.tr.id} className="tpr">
           <div className="tpn"><b>{tourLabel(x.tr)}</b><small>{x.teams} tim · {x.done}/{x.total} pertandingan{x.live ? ` · ${x.live} live` : ''}</small></div>
           <div className="bar2"><i style={{ width: x.pct + '%' }} /></div><span className="pc">{x.pct}%</span>
         </div>)}</div> : <p className="muted">Belum ada kategori.</p>}
       </section>
-
+      </div>
+      <aside className="dside">
+      <section className="dcard"><div className="dch"><h3>Menu cepat</h3></div>
+        <div className="qa">{actions.map(([ic, t, s, to]) => <button key={to} onClick={() => go(to)}><span className="ki"><Svg k={ic} /></span><span><b>{t}</b><small>{s}</small></span><Svg k="go" cls="di arr" /></button>)}</div>
+      </section>
       <section className="dcard"><div className="dch"><h3>Pengumuman</h3>{admin && <button className="link" onClick={() => go('announcements')}>Kelola</button>}</div>
         {active.length ? active.slice(0, 3).map(a => <div key={a.id} className={'ann2 ' + (a.level === 'warning' ? 'w' : '')}><b>{a.level === 'warning' ? 'Penting' : 'Info'}</b><p>{a.message}</p></div>)
           : <p className="muted">Tidak ada pengumuman yang sedang tampil.</p>}
       </section>
+      </aside>
     </div>
   </div>
 }

@@ -243,12 +243,14 @@ export function Matches({ tm, ms, tid, admin, run, load, settings, view = 'contr
           {admin && <button className="btn o sm" onClick={() => lock(m, false)}>Buka kunci</button>}
           {admin && <button className="btn o sm" onClick={() => dup(m)}>Gandakan</button>}
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Hapus</button>}</div> :
-        <div className="ctrl">
-          {m.status === 'scheduled' && <button className="btn sm" onClick={() => { enqueue(m, { status: 'live' }); log('Memulai pertandingan', mname(m)) }} disabled={!m.team1 || !m.team2}>Mulai pertandingan</button>}
-          {m.status === 'live' && <>
-            <button className="btn sm" onClick={() => point(m, 0)}>+ {tn(m.t1)}</button>
-            <button className="btn sm" onClick={() => point(m, 1)}>+ {tn(m.t2)}</button>
-            <button className="btn o sm" onClick={() => undo(m)}>Batalkan poin</button></>}
+        <div className="mctl">
+          {m.status === 'scheduled' && <button className="btn big-sm" onClick={() => { enqueue(m, { status: 'live' }); log('Memulai pertandingan', mname(m)) }} disabled={!m.team1 || !m.team2}>Mulai pertandingan</button>}
+          {m.status === 'live' && <div className="ptb">
+            <button className="btn" onClick={() => point(m, 0)}><small>+1 poin</small><span>{tn(m.t1)}</span></button>
+            <button className="btn" onClick={() => point(m, 1)}><small>+1 poin</small><span>{tn(m.t2)}</span></button>
+          </div>}
+          <div className="cact">
+          {m.status === 'live' && <button className="btn o sm" onClick={() => undo(m)}>Batalkan poin</button>}
           {m.status !== 'scheduled' && <button className="btn o sm" onClick={() => setScoring(m.id)}>Ubah skor</button>}
           {m.status !== 'finished' && <button className="btn o sm" disabled={!m.team1 || !m.team2} onClick={() => setWob(m.id)}>Walkover</button>}
           <button className="btn o sm" onClick={() => setNoting(m.id)}>Catatan</button>
@@ -257,6 +259,7 @@ export function Matches({ tm, ms, tid, admin, run, load, settings, view = 'contr
           {admin && <button className="btn o sm" onClick={() => dup(m)}>Gandakan</button>}
           {admin && m.status !== 'scheduled' && <button className="btn o sm" onClick={() => confirm('Reset pertandingan ini? Skornya akan dikosongkan.') && upd(m, { status: 'scheduled', sets: [], g: [0, 0], p: [0, 0], history: [], winner: null, wo: false, ...logReset(m) }, 'Mereset pertandingan', mname(m))}>Reset</button>}
           {admin && <button className="btn o sm danger" onClick={() => del(m)}>Hapus</button>}
+          </div>
         </div>}
     </Card></div>)}</div>
     {!shown.length && <div className="empty">{ms.length ? (hist ? 'Belum ada pertandingan selesai.' : 'Tidak ada pertandingan di tampilan ini.') : 'Belum ada pertandingan.'}{admin && !ms.length && <button className="btn" onClick={() => go('fixtures')}>Buat pertandingan</button>}</div>}

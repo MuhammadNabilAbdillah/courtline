@@ -34,9 +34,11 @@ export function Card({ m, children, plain }) {
     <div className={'card' + (live ? ' live' : '') + (fav ? ' fav' : '')}>
       <div className="meta">
         <span className={'badge ' + (live ? 'live' : '')}>{live ? t('LIVE') : done ? t('FINAL') + (m.wo ? ' · WO' : '') : t('UPCOMING')}</span>
-        <span>{m.court} · {rd(m.round)}</span><span>{fmtTime(m.start_at)}</span>
-        {!plain && <button className="link" onClick={() => go('/match/' + m.id)}>{t('Open')}</button>}
-        <button className="link" onClick={() => share(m)}>{t('Share')}</button>
+        <span className="mi"><b>{fmtTime(m.start_at)}</b> · {m.court} · {rd(m.round)}</span>
+        <span className="mact">
+          {!plain && <button className="link" onClick={() => go('/match/' + m.id)}>{t('Open')}</button>}
+          <button className="link" onClick={() => share(m)}>{t('Share')}</button>
+        </span>
       </div>
       {m.tname && <div className="tn">{m.tname}</div>}
       {[[m.t1, 0, slotText(m.slot1)], [m.t2, 1, slotText(m.slot2)]].map(([team, i, slot]) => (
@@ -47,7 +49,7 @@ export function Card({ m, children, plain }) {
             <small>{team ? `${team.player1} / ${team.player2}` : t('To be decided')}</small>
           </div>
           {team && !plain && <Star id={team.id} />}
-          {m.sets.map((s, k) => <span key={k} className="set">{s[i]}</span>)}
+          {m.status !== 'scheduled' && m.sets.map((s, k) => <span key={k} className="set">{s[i]}</span>)}
           {live && (isRace(m) ? <span className="set cur">{m.p[i]}</span> : <><span className="set cur">{m.g[i]}</span><span className="pt">{pointLabel(m, i)}</span></>)}
         </div>
       ))}

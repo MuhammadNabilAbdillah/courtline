@@ -1,6 +1,5 @@
 html{font-size:clamp(15px,.4vw + 12.5px,20px);scroll-behavior:smooth;-webkit-text-size-adjust:100%}
 :root{--b:#032a5f;--bd:#021d45;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
-:root{--b:#032a5f;--bd:#021d45;--tint:#eaf0f9;--line:#d6dfed;--ink:#0a1b3a;--mute:#5f6f8d;--bg:#f3f6fb;--pad:1.25rem;--hf:'Sora','Segoe UI',system-ui,sans-serif;--bf:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif}
 *{box-sizing:border-box}html,body{overflow-x:hidden}
 body{margin:0;font-family:var(--bf);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 h1,h2,h3,h4,.logo{font-family:var(--hf)}h2,h3,h4{margin:0}
@@ -549,30 +548,61 @@ body.scoring{overflow:hidden}
 .tvempty{font-size:1.4rem;opacity:.85}
 html.nocur,html.nocur *{cursor:none!important}
 
-/* ===== Rapikan tampilan HP (penonton + admin) ===== */
+/* ===== v10: perbaikan tampilan HP & laptop ===== */
+/* kartu pertandingan: info di kiri (terpotong rapi), tombol Buka/Bagikan selalu satu baris di kanan */
+.card .meta{flex-wrap:nowrap}
+.card .meta .badge{flex:none}
+.card .meta .mi{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .meta .mi b{color:var(--ink);font-weight:700}
+.card .meta .mact{flex:none;display:flex;gap:.8rem}
+.card .meta .link{font-size:.74rem}
+
+/* kontrol pertandingan admin: tombol poin besar, aksi lain rapi dalam grid */
+.mctl{display:flex;flex-direction:column;gap:.55rem;margin-top:.75rem}
+.mctl .big-sm{width:100%;padding:.7rem}
+.ptb{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.ptb .btn{display:flex;flex-direction:column;align-items:center;gap:.1rem;padding:.75rem .5rem;min-width:0}
+.ptb .btn small{font-size:.66rem;font-weight:700;opacity:.75;letter-spacing:.04em}
+.ptb .btn span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.84rem}
+.cact{display:grid;grid-template-columns:repeat(auto-fill,minmax(6.4rem,1fr));gap:.4rem}
+.cact .btn{padding:.5rem .4rem;white-space:nowrap}
+:root[data-theme=dark] .card .meta .mi b{color:var(--ink)}
+
+/* beranda admin: kolom utama + kolom samping, tanpa celah kosong */
+.dgrid{display:grid;grid-template-columns:minmax(0,1fr) 20rem;gap:1rem;align-items:start}
+.dmain,.dside{display:flex;flex-direction:column;gap:1rem;min-width:0}
+.dpair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;align-items:start}
+.mb small .tag{margin-right:.4rem;vertical-align:1px}
+.cgrid{grid-template-columns:repeat(auto-fill,minmax(10rem,1fr))}
+@media(max-width:1100px){.dgrid{grid-template-columns:minmax(0,1fr)}.dside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+@media(max-width:860px){.dpair,.dside{grid-template-columns:minmax(0,1fr)}.dpair{display:flex;flex-direction:column}.dside{display:flex}}
+
+/* admin di laptop: menu tetap di samping, tidak perlu tombol hamburger */
+.shell.noside{max-width:84rem}
+@media(min-width:1024px){
+ .alay{display:grid;grid-template-columns:15rem minmax(0,1fr);gap:1.4rem;align-items:start}
+ .alay .drw{position:static;inset:auto;z-index:1;visibility:visible;pointer-events:auto;display:block}
+ .alay .drb,.alay .drx{display:none}
+ .alay .drp{position:static;transform:none;width:100%;box-shadow:none;border:1px solid var(--line);border-radius:1rem;overflow:hidden;padding-top:0}
+ .alay .dnav{overflow:visible}
+ .kpis{grid-template-columns:repeat(3,1fr)}
+ .alay .drh{padding:.85rem 1rem}
+ .alay .dp{padding:.55rem .7rem;font-size:.86rem}
+ .alay .drf{flex-direction:column}
+ .adm .burger{display:none}
+ .adm .abar{position:static}
+}
+.dp .lv{font-style:normal;font:700 .62rem var(--bf);background:#e5484d;color:#fff;border-radius:999px;padding:.15rem .45rem}
+
+/* filter penonton di HP: pilihan kategori tidak terpotong */
 @media(max-width:640px){
- /* bar admin: lampu sinkron cukup titik, judul halaman dapat ruang penuh */
- .abr .sync:not(.off) .st{display:none}.abr .sync:not(.off){padding:.35rem .55rem}
- .abar{gap:.5rem}
- /* pilih kategori: label di atas, pilihan selebar kartu, chip jumlah berdampingan di bawahnya */
- .tbar{gap:.4rem .5rem}.tbar label{width:100%}.tbar select{flex:1 1 100%;max-width:none}
- /* tombol aksi di kartu pertandingan: grid 2 kolom yang rata, tombol utama selebar kartu */
- .card .ctrl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}
- .card .ctrl .btn{width:100%;padding-left:.4rem;padding-right:.4rem;white-space:normal;line-height:1.2}
- .card .ctrl .btn:not(.o),.card .ctrl .btn.danger,.card .ctrl .chip,.card .ctrl input,.card .ctrl label{grid-column:1/-1}
- .card .ctrl .chip{justify-self:start}
- /* daftar akun panitia: tiap akun satu blok, tidak terpotong di kanan */
- .stf{min-width:0}.stf,.stf tbody{display:block}
- .stf tr{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem .6rem;padding:.75rem 0;border-top:1px solid var(--line)}.stf tr:first-child{border-top:0}
- .stf td{border:0;padding:0;text-align:left}.stf td:first-child{flex:1 1 100%}.stf td.ra{display:flex;gap:.4rem;flex-wrap:wrap}
- /* daftar lapangan: nama dan tombol sebaris */
- .rs .ia{width:auto;margin-left:auto}.rs .ia .btn{flex:none}.rs .im{flex:1 1 8rem}
- /* pilihan lapangan di form bagan: tidak pecah jadi "Court / 1" */
- .ctrl .chk{white-space:nowrap}
- /* jadwal penonton: tiap tim satu baris, kata "lawan" kecil di tengah */
- .srow .sm>b{display:block;line-height:1.3}.srow .sm>span{display:block;margin:.1rem 0;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase}
+ .tools .tsp{display:none}
+ .tools select{flex:1 1 9rem}
+ .tools .btn[aria-label]{margin-left:auto}
+ .card .meta .mact{gap:.6rem}
+ .ptb .btn span{font-size:.8rem}
+ .dhero .dh-m .pill{font-size:.7rem}
 }
-/* HP sangat kecil (≤360px): header tidak boleh melebihi layar */
-@media(max-width:360px){
- .bi{gap:.35rem}.bar .logo{font-size:1rem}.bar .clock b{font-size:.85rem}.bar .clock span,.bar .clock small{font-size:.58rem}
-}
+body:has(.adm) .ann{max-width:84rem}
+@media(min-width:1400px){.kpis{grid-template-columns:repeat(6,1fr)}}
+.kpi small{line-height:1.25}
