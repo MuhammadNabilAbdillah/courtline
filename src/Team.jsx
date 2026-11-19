@@ -11,7 +11,7 @@ export function GroupTable({ g, teams, matches, hl }) {
   const rows = table(teams.filter(x => x.grp === g), matches)
   return <div className="gt"><h3>{t('Group')} {g}</h3><div className="scroll"><table className="tb">
     <thead><tr><th>{t('TEAM')}</th><th>{t('G')}</th><th>{t('W-L-T')}</th><th>{t('DIFF')}</th><th>{t('+M')}</th><th>{t('P')}</th></tr></thead>
-    <tbody>{rows.map((r, i) => <tr key={r.t.id} className={hl === r.t.id ? 'me' : ''}><td>{i + 1}. <button className="tl" onClick={() => go('/team/' + r.t.id)}>{tn(r.t)}</button></td><td>{r.g}</td><td>{r.w}-{r.l}-{r.tie}</td><td>{r.diff}</td><td>{r.gw}</td><td>{r.pts}</td></tr>)}</tbody></table></div>
+    <tbody>{rows.map((r, i) => <tr key={r.t.id} className={hl === r.t.id ? 'me' : ''}><td><div className="gtn"><span>{i + 1}.</span><button className="tl" onClick={() => go('/team/' + r.t.id)}>{tn(r.t)}</button></div></td><td>{r.g}</td><td>{r.w}-{r.l}-{r.tie}</td><td>{r.diff}</td><td>{r.gw}</td><td>{r.pts}</td></tr>)}</tbody></table></div>
     <p className="muted tbn">{rows.manual ? t('Order set by the organisers.') : t('If level: wins, head-to-head, point difference, points scored.')}</p></div>
 }
 
