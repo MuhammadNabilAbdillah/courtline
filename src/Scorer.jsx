@@ -14,7 +14,7 @@ export function SyncBadge() {
     return () => { window.removeEventListener('online', a); window.removeEventListener('offline', b) }
   }, [])
   if (o.ops) return <button className="sync warn" onClick={() => flush()}>⟳ {o.ops} belum terkirim{!on ? ' · offline' : ''}</button>
-  return <span className={'sync' + (on ? '' : ' off')}>{on ? '● Tersinkron' : '○ Offline'}</span>
+  return <span className={'sync' + (on ? '' : ' off')} title={on ? 'Tersinkron' : 'Offline'}>{on ? '●' : '○'}<span className="st"> {on ? 'Tersinkron' : 'Offline'}</span></span>
 }
 
 const finalScore = (m, i) => (isRace(m) ? (m.sets[0] ? m.sets[0][i] : 0) : m.sets.map(s => s[i]).join(' '))

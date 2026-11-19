@@ -256,7 +256,7 @@ export default function App() {
       <button className="lang" onClick={switchLang} aria-label={t('Language')} title={t('Language')}><b className={lang === 'id' ? 'on' : ''}>ID</b><b className={lang === 'en' ? 'on' : ''}>EN</b></button>
       <Clock />
     </div></header>
-    <AnnounceBar items={d.ann} />
+    {!admin && <AnnounceBar items={d.ann} />}
     <div className={'shell' + (admin ? ' noside' : '')}>
       {!admin && <aside className="side"><nav aria-label={t('Menu')}>
         {TABS.map(([k, v]) => <button key={k} className={(tab === k && !route ? 'on' : '') + (k === 'admin' ? ' adm-link' : '')} onClick={() => nav(k)} aria-current={tab === k && !route ? 'page' : undefined}><Ico k={k} /><span>{k === 'admin' ? t('Staff login') : t(v)}</span></button>)}

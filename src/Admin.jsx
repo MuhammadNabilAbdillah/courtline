@@ -107,7 +107,7 @@ function AccountPage({ me, admin, run }) {
           <input required type="password" placeholder="Password (min. 6)" value={nf.password} onChange={e => setNf({ ...nf, password: e.target.value })} />
           <select value={nf.role} onChange={e => setNf({ ...nf, role: e.target.value })}><option value="scorer">Penjaga skor</option><option value="admin">Admin</option></select>
           <button className="btn">Tambah akun</button></form>
-        <div className="scroll"><table className="tb left"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b>{s.user_id === me.user_id && <small> (kamu)</small>}</td>
+        <div className="scroll"><table className="tb left stf"><tbody>{staff.map(s => <tr key={s.user_id}><td><b>{s.username}</b>{s.user_id === me.user_id && <small> (kamu)</small>}</td>
           <td>{s.user_id === me.user_id ? s.role : <select value={s.role} onChange={e => run(supabase.from('staff').update({ role: e.target.value }).eq('user_id', s.user_id), 'Mengubah peran', `${s.username} → ${e.target.value}`).then(loadStaff)}><option value="scorer">penjaga skor</option><option value="admin">admin</option></select>}</td>
           <td className="ra">{s.user_id !== me.user_id && <><button className="btn o sm" onClick={() => resetPw(s)}>Reset password</button>{' '}
             <button className="btn o sm danger" onClick={() => confirm(`Cabut akses ${s.username}?`) && run(supabase.from('staff').delete().eq('user_id', s.user_id), 'Mencabut akun', s.username).then(loadStaff)}>Cabut</button></>}</td></tr>)}</tbody></table></div></div>
